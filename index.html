@@ -596,6 +596,9 @@ tbody tr:last-child td { border-bottom: none; }
       <button class="nav-item" data-page="historial">
         <span class="nav-icon">📋</span> Historial ventas
       </button>
+      <button class="nav-item" data-page="proveedores">
+        <span class="nav-icon">🏭</span> Proveedores
+      </button>
 
       <div class="nav-section-label admin-only" style="margin-top:8px">Admin</div>
       <button class="nav-item admin-only" data-page="reportes">
@@ -891,6 +894,69 @@ tbody tr:last-child td { border-bottom: none; }
         </div>
       </div>
 
+      <!-- ── PROVEEDORES ── -->
+      <div id="page-proveedores" class="page">
+        <div class="section-header">
+          <div class="section-title">Proveedores</div>
+          <button class="btn btn-primary" onclick="openModalProveedor()">+ Nuevo proveedor</button>
+        </div>
+
+        <!-- Stats -->
+        <div class="grid-3 mb-16" id="prov-stats-grid">
+          <div class="stat-card blue">
+            <div class="stat-label">Proveedores activos</div>
+            <div class="stat-value" style="color:var(--blue)" id="stat-prov-total">0</div>
+          </div>
+          <div class="stat-card accent">
+            <div class="stat-label">Compras este mes</div>
+            <div class="stat-value text-accent" id="stat-prov-compras-mes">$0</div>
+          </div>
+          <div class="stat-card green">
+            <div class="stat-label">Total compras históricas</div>
+            <div class="stat-value text-green" id="stat-prov-total-hist">$0</div>
+          </div>
+        </div>
+
+        <!-- Lista proveedores -->
+        <div class="table-wrap card" style="padding:0">
+          <table>
+            <thead>
+              <tr>
+                <th>Proveedor</th><th>Teléfono</th><th>Productos</th>
+                <th>Crédito</th><th>Total compras</th><th>Última compra</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="proveedores-tbody">
+              <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text3)">Cargando…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Historial de compras -->
+        <div class="card mt-20">
+          <div class="card-header">
+            <h3>Historial de compras a proveedores</h3>
+            <div class="flex gap-8 items-center">
+              <select id="prov-filtro-select" onchange="renderHistorialCompras()" style="width:200px;font-size:.85rem;padding:6px 10px">
+                <option value="">— Todos los proveedores —</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Fecha</th><th>Proveedor</th><th>Productos</th><th>Total</th><th>Registrado por</th>
+                </tr>
+              </thead>
+              <tbody id="compras-tbody">
+                <tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3)">Sin compras registradas</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- ── CONFIG ── -->
       <div id="page-config" class="page">
         <div class="section-title mb-16">Configuración</div>
@@ -928,7 +994,129 @@ tbody tr:last-child td { border-bottom: none; }
      MODALES
 ══════════════════════════════════════ -->
 
-<!-- Modal: Nuevo Producto -->
+<!-- Modal: Nuevo Proveedor -->
+<div class="modal-overlay" id="modal-proveedor">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <h2 id="modal-prov-title">Nuevo proveedor</h2>
+      <button class="btn-close" onclick="closeModal('modal-proveedor')">✕</button>
+    </div>
+    <div class="flex flex-col gap-12">
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Nombre / Empresa *</label>
+          <input type="text" id="prov-nombre" placeholder="Distribuidora XYZ">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Teléfono *</label>
+          <input type="tel" id="prov-tel" placeholder="0000-0000">
+        </div>
+      </div>
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Contacto (vendedor)</label>
+          <input type="text" id="prov-contacto" placeholder="Nombre del vendedor">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="prov-email" placeholder="contacto@empresa.com">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Productos que suministra</label>
+        <input type="text" id="prov-productos" placeholder="Aceites Valvoline, Filtros Toyota, …">
+      </div>
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Días de crédito</label>
+          <input type="number" id="prov-credito" placeholder="0 = pago inmediato" min="0">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Dirección</label>
+          <input type="text" id="prov-dir" placeholder="Dirección opcional">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notas</label>
+        <textarea id="prov-notas" rows="2" placeholder="Observaciones, condiciones, horario de entrega…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-proveedor')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarProveedor()">Guardar proveedor</button>
+    </div>
+    <input type="hidden" id="prov-id">
+  </div>
+</div>
+
+<!-- Modal: Registrar Compra -->
+<div class="modal-overlay" id="modal-compra">
+  <div class="modal" style="max-width:580px">
+    <div class="modal-header">
+      <h2>Registrar compra a proveedor</h2>
+      <button class="btn-close" onclick="closeModal('modal-compra')">✕</button>
+    </div>
+    <div class="flex flex-col gap-12">
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Proveedor *</label>
+          <select id="compra-proveedor">
+            <option value="">— Seleccionar —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Fecha *</label>
+          <input type="date" id="compra-fecha">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Factura / Referencia</label>
+        <input type="text" id="compra-factura" placeholder="Nº de factura o referencia">
+      </div>
+      <hr class="divider">
+      <div class="flex items-center justify-between">
+        <h3>Productos comprados</h3>
+        <button class="btn btn-sm btn-ghost" onclick="addCompraItem()">+ Agregar</button>
+      </div>
+      <div id="compra-items-list"></div>
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Subtotal productos</label>
+          <input type="text" id="compra-subtotal" readonly style="color:var(--text2)">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Total compra</label>
+          <input type="text" id="compra-total" readonly style="color:var(--accent);font-weight:700">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notas de la compra</label>
+        <input type="text" id="compra-notas" placeholder="Observaciones opcionales">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-compra')">Cancelar</button>
+      <button class="btn btn-green" onclick="guardarCompra()">📥 Registrar compra</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Ver Proveedor -->
+<div class="modal-overlay" id="modal-prov-detalle">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <h2 id="prov-detalle-nombre">Proveedor</h2>
+      <button class="btn-close" onclick="closeModal('modal-prov-detalle')">✕</button>
+    </div>
+    <div id="prov-detalle-content"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-prov-detalle')">Cerrar</button>
+      <button class="btn btn-primary" id="btn-prov-compra" onclick="abrirCompraDesdeDetalle()">+ Registrar compra</button>
+    </div>
+  </div>
+</div>
+
+
 <div class="modal-overlay" id="modal-producto">
   <div class="modal">
     <div class="modal-header">
@@ -1338,7 +1526,8 @@ const PAGE_TITLES = {
   clientes:   'Clientes',
   historial:  'Historial de ventas',
   reportes:   'Reportes',
-  config:     'Configuración'
+  config:     'Configuración',
+  proveedores: 'Proveedores'
 };
 
 function navigate(page) {
@@ -1352,8 +1541,10 @@ function navigate(page) {
   document.getElementById('sidebar').classList.remove('open');
   // Page-specific init
   if (page === 'ventas')     loadPOSProducts();
+  if (page === 'proveedores') { fillProveedorSelects(); renderHistorialCompras(); }
   if (page === 'historial') { const d = new Date(); document.getElementById('hist-fecha').value = toDateInput(d); loadHistorial(); }
   if (page === 'reportes')   { document.getElementById('rpt-fecha').value = toDateInput(new Date()); loadTopProductos(); }
+  if (page === 'proveedores') renderProveedores();
 }
 
 document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
@@ -1375,6 +1566,7 @@ function initApp() {
   listenInventario();
   listenClientes();
   listenServicios();
+  listenProveedores();
   loadConfig();
 }
 
@@ -2480,6 +2672,369 @@ async function eliminarServicio(id) {
     toast('Orden de servicio eliminada', 'success');
   } catch(e) {
     toast('Error al eliminar: ' + e.message, 'error');
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  PROVEEDORES
+// ════════════════════════════════════════════════════════════════
+let allProveedores = [];
+let allCompras     = [];
+let compraItems    = [];
+let provDetalleId  = null;
+
+function listenProveedores() {
+  try {
+    unsubs.push(db.collection('proveedores').orderBy('nombre').onSnapshot(snap => {
+      allProveedores = snap.docs.map(d => ({id:d.id,...d.data()}));
+      const el = document.getElementById('stat-prov-total');
+      if (el) el.textContent = allProveedores.length;
+      renderProveedores();
+      fillProveedorSelects();
+    }, err => console.warn('proveedores listener:', err)));
+
+    unsubs.push(db.collection('compras_proveedor').orderBy('fecha','desc').onSnapshot(snap => {
+      allCompras = snap.docs.map(d => ({id:d.id,...d.data()}));
+      calcEstadisticasCompras();
+      renderHistorialCompras();
+    }, err => console.warn('compras listener:', err)));
+  } catch(e) {
+    console.warn('listenProveedores error:', e);
+  }
+}
+
+function calcEstadisticasCompras() {
+  const mesActual = new Date().toISOString().substring(0,7);
+  const totalMes  = allCompras.filter(c => c.fecha?.startsWith(mesActual)).reduce((s,c) => s+(c.total||0), 0);
+  const totalHist = allCompras.reduce((s,c) => s+(c.total||0), 0);
+  const elMes  = document.getElementById('stat-prov-compras-mes');
+  const elHist = document.getElementById('stat-prov-total-hist');
+  if (elMes)  elMes.textContent  = fmt(totalMes);
+  if (elHist) elHist.textContent = fmt(totalHist);
+}
+
+function renderProveedores() {
+  const tbody = document.getElementById('proveedores-tbody');
+  if (!tbody) return;
+  if (!allProveedores.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text3)">Sin proveedores registrados</td></tr>';
+    return;
+  }
+  tbody.innerHTML = allProveedores.map(p => {
+    const comprasProv = allCompras.filter(c => c.proveedorId === p.id);
+    const totalComp   = comprasProv.reduce((s,c) => s+(c.total||0), 0);
+    const ultimaComp  = comprasProv[0]?.fecha ? dateStr(comprasProv[0].fecha) : '—';
+    const credito     = (p.diasCredito||0) > 0
+      ? `<span class="badge badge-blue">${p.diasCredito} días</span>`
+      : `<span class="badge badge-gray">Inmediato</span>`;
+    return `<tr>
+      <td>
+        <div style="font-weight:600">${p.nombre}</div>
+        <div style="font-size:.78rem;color:var(--text3)">${p.contacto||''}</div>
+      </td>
+      <td style="color:var(--text2)">${p.telefono||'—'}</td>
+      <td style="font-size:.82rem;color:var(--text3);max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.productosQueVende||'—'}</td>
+      <td>${credito}</td>
+      <td style="font-weight:600;color:var(--accent)">${fmt(totalComp)}</td>
+      <td style="color:var(--text3);font-size:.82rem">${ultimaComp}</td>
+      <td>
+        <div class="flex gap-8">
+          <button class="btn btn-sm btn-ghost btn-icon" onclick='verProveedor("${p.id}")' title="Ver detalle">👁️</button>
+          <button class="btn btn-sm btn-ghost btn-icon" onclick='editProveedor("${p.id}")' title="Editar">✏️</button>
+          <button class="btn btn-sm btn-green btn-icon" onclick='abrirCompra("${p.id}")' title="Registrar compra" style="font-size:.75rem;padding:5px 8px">+ Compra</button>
+          <button class="btn btn-sm btn-danger btn-icon" onclick='eliminarProveedor("${p.id}","${p.nombre}")' title="Eliminar">🗑️</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderHistorialCompras() {
+  const tbody   = document.getElementById('compras-tbody');
+  if (!tbody) return;
+  const filtro  = document.getElementById('prov-filtro-select')?.value || '';
+  let compras   = filtro ? allCompras.filter(c => c.proveedorId === filtro) : allCompras;
+  if (!compras.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--text3)">Sin compras registradas</td></tr>';
+    return;
+  }
+  tbody.innerHTML = compras.map(c => `<tr>
+    <td style="color:var(--text3);font-size:.85rem">${dateStr(c.fecha)}</td>
+    <td style="font-weight:600">${c.proveedorNombre||'—'}</td>
+    <td style="font-size:.82rem;color:var(--text2)">${(c.items||[]).map(i=>`${i.nombre} ×${i.qty}`).join(', ')}</td>
+    <td style="font-weight:700;color:var(--accent)">${fmt(c.total||0)}</td>
+    <td style="color:var(--text3);font-size:.82rem">${c.usuarioNombre||'—'}</td>
+  </tr>`).join('');
+}
+
+function fillProveedorSelects() {
+  const selects = [
+    document.getElementById('compra-proveedor'),
+    document.getElementById('prov-filtro-select')
+  ];
+  selects.forEach(sel => {
+    if (!sel) return;
+    const cur = sel.value;
+    const base = sel.id === 'prov-filtro-select'
+      ? '<option value="">— Todos los proveedores —</option>'
+      : '<option value="">— Seleccionar —</option>';
+    sel.innerHTML = base + allProveedores.map(p =>
+      `<option value="${p.id}">${p.nombre}</option>`
+    ).join('');
+    if (cur) sel.value = cur;
+  });
+}
+
+// ── Modal Proveedor ──
+function openModalProveedor() {
+  ['prov-nombre','prov-tel','prov-contacto','prov-email','prov-productos','prov-dir','prov-notas'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('prov-credito').value = '0';
+  document.getElementById('prov-id').value = '';
+  document.getElementById('modal-prov-title').textContent = 'Nuevo proveedor';
+  document.getElementById('modal-proveedor').classList.add('open');
+}
+
+async function editProveedor(id) {
+  const p = allProveedores.find(x => x.id === id);
+  if (!p) return;
+  document.getElementById('prov-id').value        = id;
+  document.getElementById('prov-nombre').value    = p.nombre || '';
+  document.getElementById('prov-tel').value       = p.telefono || '';
+  document.getElementById('prov-contacto').value  = p.contacto || '';
+  document.getElementById('prov-email').value     = p.email || '';
+  document.getElementById('prov-productos').value = p.productosQueVende || '';
+  document.getElementById('prov-credito').value   = p.diasCredito || 0;
+  document.getElementById('prov-dir').value       = p.direccion || '';
+  document.getElementById('prov-notas').value     = p.notas || '';
+  document.getElementById('modal-prov-title').textContent = 'Editar proveedor';
+  document.getElementById('modal-proveedor').classList.add('open');
+}
+
+async function guardarProveedor() {
+  const nombre = document.getElementById('prov-nombre').value.trim();
+  const tel    = document.getElementById('prov-tel').value.trim();
+  if (!nombre) { toast('Ingresa el nombre del proveedor', 'error'); return; }
+
+  const data = {
+    nombre,
+    telefono:         tel,
+    contacto:         document.getElementById('prov-contacto').value.trim(),
+    email:            document.getElementById('prov-email').value.trim(),
+    productosQueVende:document.getElementById('prov-productos').value.trim(),
+    diasCredito:      parseInt(document.getElementById('prov-credito').value) || 0,
+    direccion:        document.getElementById('prov-dir').value.trim(),
+    notas:            document.getElementById('prov-notas').value.trim(),
+    updatedAt:        new Date().toISOString()
+  };
+
+  try {
+    const id = document.getElementById('prov-id').value;
+    if (id) {
+      await db.collection('proveedores').doc(id).update(data);
+      toast('Proveedor actualizado', 'success');
+    } else {
+      data.createdAt = new Date().toISOString();
+      await db.collection('proveedores').add(data);
+      toast('Proveedor registrado', 'success');
+    }
+    closeModal('modal-proveedor');
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+async function eliminarProveedor(id, nombre) {
+  if (!confirm(`¿Eliminar al proveedor "${nombre}"?\nEsta acción no se puede deshacer.`)) return;
+  try {
+    await db.collection('proveedores').doc(id).delete();
+    toast(`Proveedor "${nombre}" eliminado`, 'success');
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+// ── Ver detalle proveedor ──
+function verProveedor(id) {
+  const p = allProveedores.find(x => x.id === id);
+  if (!p) return;
+  provDetalleId = id;
+  const comprasProv = allCompras.filter(c => c.proveedorId === id);
+  const totalComp   = comprasProv.reduce((s,c) => s+(c.total||0), 0);
+  document.getElementById('prov-detalle-nombre').textContent = p.nombre;
+  document.getElementById('prov-detalle-content').innerHTML = `
+    <div class="grid-2" style="gap:12px;margin-bottom:16px">
+      <div style="font-size:.85rem">
+        <div class="text-muted text-small">Teléfono</div>
+        <div style="font-weight:600">${p.telefono||'—'}</div>
+      </div>
+      <div style="font-size:.85rem">
+        <div class="text-muted text-small">Contacto</div>
+        <div style="font-weight:600">${p.contacto||'—'}</div>
+      </div>
+      <div style="font-size:.85rem">
+        <div class="text-muted text-small">Email</div>
+        <div style="font-weight:600">${p.email||'—'}</div>
+      </div>
+      <div style="font-size:.85rem">
+        <div class="text-muted text-small">Crédito</div>
+        <div style="font-weight:600">${(p.diasCredito||0) > 0 ? p.diasCredito+' días' : 'Pago inmediato'}</div>
+      </div>
+    </div>
+    <div style="font-size:.85rem;margin-bottom:12px">
+      <div class="text-muted text-small">Productos que suministra</div>
+      <div>${p.productosQueVende||'—'}</div>
+    </div>
+    ${p.notas ? `<div style="font-size:.85rem;margin-bottom:12px"><div class="text-muted text-small">Notas</div><div>${p.notas}</div></div>` : ''}
+    <hr class="divider">
+    <div class="flex justify-between items-center mb-16">
+      <div>
+        <div class="text-muted text-small">Total compras</div>
+        <div style="font-size:1.4rem;font-weight:700;color:var(--accent)">${fmt(totalComp)}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="text-muted text-small">Compras realizadas</div>
+        <div style="font-size:1.4rem;font-weight:700">${comprasProv.length}</div>
+      </div>
+    </div>
+    <h3 style="margin-bottom:10px">Últimas compras</h3>
+    ${comprasProv.slice(0,5).map(c => `
+      <div class="flex justify-between items-center" style="padding:7px 0;border-bottom:1px solid var(--border);font-size:.85rem">
+        <div>
+          <div style="font-weight:600">${dateStr(c.fecha)}</div>
+          <div style="color:var(--text3)">${(c.items||[]).map(i=>i.nombre+' ×'+i.qty).join(', ')}</div>
+        </div>
+        <div style="font-weight:700;color:var(--accent)">${fmt(c.total)}</div>
+      </div>`).join('') || '<div style="color:var(--text3);font-size:.85rem">Sin compras registradas</div>'}
+  `;
+  document.getElementById('modal-prov-detalle').classList.add('open');
+}
+
+function abrirCompraDesdeDetalle() {
+  closeModal('modal-prov-detalle');
+  abrirCompra(provDetalleId);
+}
+
+// ── Modal Compra ──
+function abrirCompra(proveedorId) {
+  compraItems = [];
+  document.getElementById('compra-factura').value = '';
+  document.getElementById('compra-notas').value   = '';
+  document.getElementById('compra-fecha').value   = new Date().toISOString().substring(0,10);
+  document.getElementById('compra-subtotal').value = '$0.00';
+  document.getElementById('compra-total').value    = '$0.00';
+  if (proveedorId) document.getElementById('compra-proveedor').value = proveedorId;
+  renderCompraItems();
+  document.getElementById('modal-compra').classList.add('open');
+}
+
+function addCompraItem() {
+  compraItems.push({ productoId:'', nombre:'', qty:1, costo:0 });
+  renderCompraItems();
+}
+
+function renderCompraItems() {
+  const el = document.getElementById('compra-items-list');
+  if (!compraItems.length) {
+    el.innerHTML = '<p style="color:var(--text3);font-size:.85rem;text-align:center;padding:8px">Agrega los productos que compraste</p>';
+    return;
+  }
+  el.innerHTML = compraItems.map((item, i) => `
+    <div class="form-row" style="grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-bottom:8px;align-items:end">
+      <select onchange="onCompraItemSelect(${i},this.value)">
+        <option value="">— Producto del inventario —</option>
+        ${allProducts.map(p => `<option value="${p.id}" ${p.id===item.productoId?'selected':''}>${p.nombre} ${p.marca?'('+p.marca+')':''}</option>`).join('')}
+        <option value="__otro__" ${item.productoId==='__otro__'?'selected':''}>Otro (no en inventario)</option>
+      </select>
+      ${item.productoId==='__otro__' ? `<input type="text" placeholder="Nombre del producto" value="${item.nombre}" oninput="onCompraItemNombre(${i},this.value)" style="grid-column:span 1">` : '<div></div>'}
+      <input type="number" placeholder="Qty" value="${item.qty}" min="1" oninput="onCompraItemQty(${i},this.value)">
+      <input type="number" placeholder="Costo unit." value="${item.costo||''}" step="0.01" oninput="onCompraItemCosto(${i},this.value)">
+      <button class="btn btn-sm btn-ghost btn-icon" onclick="removeCompraItem(${i})">✕</button>
+    </div>`).join('');
+  calcCompraTotal();
+}
+
+function onCompraItemSelect(i, val) {
+  const p = allProducts.find(x => x.id === val);
+  compraItems[i].productoId = val;
+  compraItems[i].nombre     = p?.nombre || '';
+  compraItems[i].costo      = p?.costo  || 0;
+  renderCompraItems();
+}
+
+function onCompraItemNombre(i, val) { compraItems[i].nombre = val; }
+function onCompraItemQty(i, val)    { compraItems[i].qty = parseInt(val)||1; calcCompraTotal(); }
+function onCompraItemCosto(i, val)  { compraItems[i].costo = parseFloat(val)||0; calcCompraTotal(); }
+function removeCompraItem(i)        { compraItems.splice(i,1); renderCompraItems(); }
+
+function calcCompraTotal() {
+  const total = compraItems.reduce((s,i) => s+(i.costo||0)*(i.qty||1), 0);
+  document.getElementById('compra-subtotal').value = fmt(total);
+  document.getElementById('compra-total').value    = fmt(total);
+}
+
+async function guardarCompra() {
+  const provId = document.getElementById('compra-proveedor').value;
+  const fecha  = document.getElementById('compra-fecha').value;
+  if (!provId)  { toast('Selecciona un proveedor', 'error'); return; }
+  if (!compraItems.length) { toast('Agrega al menos un producto', 'error'); return; }
+
+  const prov  = allProveedores.find(p => p.id === provId);
+  const total = compraItems.reduce((s,i) => s+(i.costo||0)*(i.qty||1), 0);
+
+  const compra = {
+    proveedorId:     provId,
+    proveedorNombre: prov?.nombre || '—',
+    fecha:           fecha,
+    factura:         document.getElementById('compra-factura').value.trim(),
+    notas:           document.getElementById('compra-notas').value.trim(),
+    items:           compraItems.map(i => ({
+      productoId: i.productoId,
+      nombre:     i.nombre,
+      qty:        i.qty,
+      costo:      i.costo,
+      subtotal:   i.costo * i.qty
+    })),
+    total,
+    usuarioId:    currentUser?.uid,
+    usuarioNombre:currentUserData?.nombre || '—',
+    creadoEn:     new Date().toISOString()
+  };
+
+  try {
+    const batch = db.batch();
+    // Guardar compra
+    const compraRef = db.collection('compras_proveedor').doc();
+    batch.set(compraRef, compra);
+
+    // Actualizar stock e historial de cada producto del inventario
+    for (const item of compraItems) {
+      if (!item.productoId || item.productoId === '__otro__') continue;
+      const prod = allProducts.find(p => p.id === item.productoId);
+      if (!prod) continue;
+      batch.update(db.collection('productos').doc(item.productoId), {
+        stock: (prod.stock||0) + (item.qty||1),
+        costo: item.costo || prod.costo
+      });
+      const movRef = db.collection('movimientos').doc();
+      batch.set(movRef, {
+        tipo:           'entrada',
+        productoId:     item.productoId,
+        productoNombre: item.nombre,
+        qty:            item.qty,
+        costo:          item.costo,
+        referencia:     `Compra a ${prov?.nombre||'proveedor'} ${compra.factura ? '· '+compra.factura : ''}`,
+        usuarioId:      currentUser?.uid,
+        fecha:          new Date().toISOString()
+      });
+    }
+
+    await batch.commit();
+    toast(`Compra de ${fmt(total)} registrada`, 'success');
+    closeModal('modal-compra');
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
   }
 }
 
