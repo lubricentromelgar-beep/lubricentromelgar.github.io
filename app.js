@@ -139,7 +139,6 @@ function showScreen(screen) {
 const PAGE_TITLES = {
   dashboard:  'Dashboard',
   ventas:     'Nueva venta',
-  servicios:  'Órdenes de servicio',
   inventario: 'Inventario',
   clientes:   'Clientes',
   historial:  'Historial de ventas',
@@ -183,7 +182,6 @@ function initApp() {
   listenDashboard();
   listenInventario();
   listenClientes();
-  listenServicios();
   listenProveedores();
   loadConfig();
 }
@@ -611,7 +609,7 @@ async function procesarVenta() {
     // Guardar venta
     const ventaRef = db.collection('ventas').doc();
     batch.set(ventaRef, venta);
-    // Descontar stock + registrar movimientos (solo productos, no servicios)
+    // Descontar stock solo para productos físicos (los servicios no tienen stock)
     for (const item of cart) {
       const prod = allProducts.find(p => p.id === item.id);
       if (prod && prod.categoria !== 'servicio') {
@@ -660,7 +658,6 @@ function listenClientes() {
 function fillClienteSelects() {
   const selects = [
     document.getElementById('pos-cliente'),
-    document.getElementById('srv-cliente')
   ];
   selects.forEach(sel => {
     if (!sel) return;
@@ -780,246 +777,6 @@ async function guardarCliente() {
       toast('Cliente registrado', 'success');
     }
     closeModal('modal-cliente');
-  } catch(e) {
-    toast('Error: ' + e.message, 'error');
-  }
-}
-
-// ════════════════════════════════════════════════════════════════
-//  SERVICIOS
-// ════════════════════════════════════════════════════════════════
-let allServicios = [];
-let srvFilter   = 'todos';
-let srvProductos = [];
-
-function listenServicios() {
-  unsubs.push(db.collection('ordenes_servicio').orderBy('fecha','desc').onSnapshot(snap => {
-    allServicios = snap.docs.map(d => ({id:d.id,...d.data()}));
-    const activos = allServicios.filter(s => s.estado !== 'terminado').length;
-    document.getElementById('stat-servicios-hoy').textContent = activos;
-    renderServicios();
-    renderServiciosDashboard();
-  }));
-}
-
-function renderServiciosDashboard() {
-  const el  = document.getElementById('dash-servicios-pendientes');
-  const pending = allServicios.filter(s => ['pendiente','en_proceso'].includes(s.estado)).slice(0,5);
-  if (!pending.length) {
-    el.innerHTML = '<div class="empty-state" style="padding:20px"><span class="icon" style="font-size:2rem">🔧</span><p>No hay servicios activos</p></div>';
-    return;
-  }
-  el.innerHTML = pending.map(s => `
-    <div class="flex items-center justify-between" style="padding:8px 0;border-bottom:1px solid var(--border)">
-      <div>
-        <div style="font-weight:600;font-size:.88rem">${s.clienteNombre||'—'} · <span style="color:var(--text3)">${s.vehiculoPlaca||'—'}</span></div>
-        <div style="font-size:.78rem;color:var(--text3)">${srvTipoLabel(s.tipoServicio)} · ${s.mecanico||'—'}</div>
-      </div>
-      <span class="badge ${s.estado==='en_proceso'?'badge-blue':'badge-amber'}">${s.estado==='en_proceso'?'En proceso':'Pendiente'}</span>
-    </div>`).join('');
-}
-
-function renderServicios() {
-  const tbody = document.getElementById('servicios-tbody');
-  let srv = srvFilter === 'todos' ? allServicios : allServicios.filter(s => s.estado === srvFilter);
-  if (!srv.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text3)">Sin órdenes</td></tr>';
-    return;
-  }
-  tbody.innerHTML = srv.map((s,i) => {
-    const badgeClass = s.estado === 'terminado' ? 'badge-green' : s.estado === 'en_proceso' ? 'badge-blue' : 'badge-amber';
-    return `<tr>
-      <td style="color:var(--text3);font-size:.82rem">#${allServicios.length - i}</td>
-      <td>
-        <div style="font-weight:600">${s.clienteNombre||'—'}</div>
-        <div style="font-size:.78rem;color:var(--text3)">${s.vehiculoPlaca||''} ${s.vehiculoModelo||''}</div>
-      </td>
-      <td style="font-size:.88rem">${srvTipoLabel(s.tipoServicio)}</td>
-      <td style="color:var(--text3)">${s.mecanico||'—'}</td>
-      <td><span class="badge ${badgeClass}">${s.estado||'—'}</span></td>
-      <td style="font-weight:600">${fmt(s.total||0)}</td>
-      <td style="color:var(--text3);font-size:.82rem">${dateStr(s.fecha)}</td>
-      <td>
-        <div class="flex gap-8">
-          <button class="btn btn-sm btn-ghost btn-icon" onclick='editServicio("${s.id}")' title="Editar">✏️</button>
-          <button class="btn btn-sm btn-ghost btn-icon" onclick='printServicio("${s.id}")' title="Generar ticket">🖨️</button>
-          <button class="btn btn-sm btn-danger btn-icon" onclick='eliminarServicio("${s.id}")' title="Eliminar">🗑️</button>
-        </div>
-      </td>
-    </tr>`;
-  }).join('');
-}
-
-function filterServicios(btn) {
-  srvFilter = btn.dataset.filter;
-  document.querySelectorAll('#page-servicios .filter-chip').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  renderServicios();
-}
-
-function srvTipoLabel(tipo) {
-  const labels = { cambio_aceite:'Cambio de aceite', revision_frenos:'Rev. frenos', afinacion:'Afinación', revision_general:'Rev. general', cambio_filtros:'Cambio filtros', otro:'Otro' };
-  return labels[tipo] || tipo || '—';
-}
-
-function openModalServicio() {
-  srvProductos = [];
-  document.getElementById('srv-id').value = '';
-  ['srv-mecanico','srv-desc'].forEach(id => document.getElementById(id).value = '');
-  ['srv-km','srv-prox-km','srv-mano-obra'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('srv-total').value = '';
-  document.getElementById('srv-tipo').value = 'cambio_aceite';
-  document.getElementById('srv-estado').value = 'pendiente';
-  document.getElementById('srv-cliente').value = '';
-  document.getElementById('srv-vehiculo').innerHTML = '<option value="">— Primero selecciona cliente —</option>';
-  document.getElementById('modal-srv-title').textContent = 'Nueva orden de servicio';
-  renderSrvProductos();
-  document.getElementById('modal-servicio').classList.add('open');
-}
-
-async function editServicio(id) {
-  const s = allServicios.find(x => x.id === id);
-  if (!s) return;
-  srvProductos = s.productosUsados || [];
-  document.getElementById('srv-id').value        = id;
-  document.getElementById('srv-mecanico').value  = s.mecanico || '';
-  document.getElementById('srv-desc').value      = s.descripcion || '';
-  document.getElementById('srv-km').value        = s.km || '';
-  document.getElementById('srv-prox-km').value   = s.proxKm || '';
-  document.getElementById('srv-mano-obra').value = s.manoObra || '';
-  document.getElementById('srv-tipo').value      = s.tipoServicio || 'cambio_aceite';
-  document.getElementById('srv-estado').value    = s.estado || 'pendiente';
-  document.getElementById('srv-cliente').value   = s.clienteId || '';
-  onSrvClienteChange(s.vehiculoPlaca);
-  calcSrvTotal();
-  renderSrvProductos();
-  document.getElementById('modal-srv-title').textContent = 'Editar orden';
-  document.getElementById('modal-servicio').classList.add('open');
-}
-
-function onSrvClienteChange(selectPlaca) {
-  const clienteId = document.getElementById('srv-cliente').value;
-  const cliente   = allClientes.find(c => c.id === clienteId);
-  const sel       = document.getElementById('srv-vehiculo');
-  if (!cliente?.vehiculos?.length) {
-    sel.innerHTML = '<option value="">— Sin vehículos registrados —</option>';
-    return;
-  }
-  sel.innerHTML = cliente.vehiculos.map(v =>
-    `<option value="${v.placa}" ${selectPlaca===v.placa?'selected':''}>${v.placa} — ${v.marca||''} ${v.modelo||''} ${v.anio||''}</option>`
-  ).join('');
-}
-
-// Productos dentro de orden de servicio
-function addSrvProducto() {
-  srvProductos.push({ productoId:'', nombre:'', qty:1, precio:0 });
-  renderSrvProductos();
-}
-
-function renderSrvProductos() {
-  const el = document.getElementById('srv-productos-list');
-  if (!srvProductos.length) { el.innerHTML = ''; return; }
-  el.innerHTML = srvProductos.map((item, i) => `
-    <div class="form-row" style="grid-template-columns:2fr 1fr 1fr auto;gap:8px;margin-bottom:8px;align-items:end">
-      <select onchange="onSrvProdSelect(${i},this.value)">
-        <option value="">— Seleccionar —</option>
-        ${allProducts.map(p => `<option value="${p.id}" ${p.id===item.productoId?'selected':''}>${p.nombre} ${p.marca?'('+p.marca+')':''}</option>`).join('')}
-      </select>
-      <input type="number" placeholder="Cant" value="${item.qty}" min="1" oninput="onSrvProdQty(${i},this.value)">
-      <input type="number" placeholder="Precio" value="${item.precio||''}" step="0.01" oninput="onSrvProdPrecio(${i},this.value)" readonly style="color:var(--text3)">
-      <button class="btn btn-sm btn-ghost btn-icon" onclick="removeSrvProducto(${i})">✕</button>
-    </div>`).join('');
-}
-
-function onSrvProdSelect(i, prodId) {
-  const p = allProducts.find(x => x.id === prodId);
-  srvProductos[i].productoId = prodId;
-  srvProductos[i].nombre     = p?.nombre || '';
-  srvProductos[i].precio     = p?.precio || 0;
-  renderSrvProductos(); calcSrvTotal();
-}
-
-function onSrvProdQty(i, val) {
-  srvProductos[i].qty = parseInt(val) || 1;
-  calcSrvTotal();
-}
-
-function onSrvProdPrecio(i, val) {
-  srvProductos[i].precio = parseFloat(val) || 0;
-  calcSrvTotal();
-}
-
-function removeSrvProducto(i) {
-  srvProductos.splice(i, 1);
-  renderSrvProductos(); calcSrvTotal();
-}
-
-function calcSrvTotal() {
-  const prods    = srvProductos.reduce((s,p) => s + (p.precio||0)*(p.qty||1), 0);
-  const mano     = parseFloat(document.getElementById('srv-mano-obra')?.value) || 0;
-  document.getElementById('srv-total').value = fmt(prods + mano);
-}
-
-async function guardarServicio() {
-  const clienteId   = document.getElementById('srv-cliente').value;
-  const vehiculoPlaca = document.getElementById('srv-vehiculo').value;
-  if (!clienteId)      { toast('Selecciona un cliente',  'error'); return; }
-  if (!vehiculoPlaca)  { toast('Selecciona un vehículo', 'error'); return; }
-
-  const cliente  = allClientes.find(c => c.id === clienteId);
-  const vehiculo = cliente?.vehiculos?.find(v => v.placa === vehiculoPlaca);
-  const manoObra = parseFloat(document.getElementById('srv-mano-obra').value) || 0;
-  const prodsTotal = srvProductos.reduce((s,p) => s + (p.precio||0)*(p.qty||1), 0);
-
-  const data = {
-    clienteId,
-    clienteNombre:   cliente?.nombre || '—',
-    vehiculoPlaca:   vehiculoPlaca,
-    vehiculoModelo:  vehiculo ? `${vehiculo.marca||''} ${vehiculo.modelo||''}` : '',
-    tipoServicio:    document.getElementById('srv-tipo').value,
-    mecanico:        document.getElementById('srv-mecanico').value.trim(),
-    km:              parseInt(document.getElementById('srv-km').value) || null,
-    proxKm:          parseInt(document.getElementById('srv-prox-km').value) || null,
-    descripcion:     document.getElementById('srv-desc').value.trim(),
-    productosUsados: srvProductos,
-    manoObra,
-    total:           manoObra + prodsTotal,
-    estado:          document.getElementById('srv-estado').value,
-    updatedAt:       new Date().toISOString()
-  };
-
-  try {
-    const id = document.getElementById('srv-id').value;
-    const batch = db.batch();
-
-    if (id) {
-      batch.update(db.collection('ordenes_servicio').doc(id), data);
-    } else {
-      data.fecha      = new Date().toISOString();
-      data.cajeroId   = currentUser?.uid;
-      const ref = db.collection('ordenes_servicio').doc();
-      batch.set(ref, data);
-    }
-
-    // Si terminado: descontar productos del inventario
-    if (data.estado === 'terminado') {
-      for (const item of srvProductos) {
-        if (!item.productoId) continue;
-        const p = allProducts.find(x => x.id === item.productoId);
-        if (p) batch.update(db.collection('productos').doc(item.productoId), {
-          stock: Math.max(0, (p.stock||0) - (item.qty||1))
-        });
-      }
-      // Actualizar cliente
-      batch.update(db.collection('clientes').doc(clienteId), {
-        ultimaVisita:   new Date().toISOString(),
-        totalServicios: firebase.firestore.FieldValue.increment(1)
-      });
-    }
-
-    await batch.commit();
-    toast('Orden guardada', 'success');
-    closeModal('modal-servicio');
   } catch(e) {
     toast('Error: ' + e.message, 'error');
   }
@@ -1241,44 +998,6 @@ function printTicket(venta) {
   }
 }
 
-function printServicio(id) {
-  const s = allServicios.find(x => x.id === id);
-  if (!s) return;
-  try {
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ format:[80, 220], unit:'mm' });
-    const cfg = getConfig();
-    let y = 8;
-    doc.setFontSize(13); doc.setFont(undefined,'bold');
-    doc.text(cfg.nombre||'Lubricentro', 40, y, {align:'center'}); y += 6;
-    doc.setFontSize(8); doc.setFont(undefined,'normal');
-    doc.text('ORDEN DE SERVICIO', 40, y, {align:'center'}); y += 4;
-    doc.line(4, y, 76, y); y += 4;
-    doc.text(`Cliente: ${s.clienteNombre||'—'}`, 4, y); y += 4;
-    doc.text(`Vehículo: ${s.vehiculoPlaca||'—'} ${s.vehiculoModelo||''}`, 4, y); y += 4;
-    doc.text(`Servicio: ${srvTipoLabel(s.tipoServicio)}`, 4, y); y += 4;
-    doc.text(`Mecánico: ${s.mecanico||'—'}`, 4, y); y += 4;
-    if (s.km) { doc.text(`Km: ${s.km}`, 4, y); y += 4; }
-    if (s.proxKm) { doc.text(`Próx. cambio: ${s.proxKm} km`, 4, y); y += 4; }
-    doc.line(4, y, 76, y); y += 4;
-    (s.productosUsados||[]).forEach(p => {
-      doc.text(`${p.nombre} ×${p.qty}`, 4, y);
-      doc.text(fmt((p.precio||0)*(p.qty||1)), 76, y, {align:'right'});
-      y += 4;
-    });
-    if (s.manoObra) { doc.text('Mano de obra', 4, y); doc.text(fmt(s.manoObra), 76, y, {align:'right'}); y += 4; }
-    doc.line(4, y, 76, y); y += 4;
-    doc.setFont(undefined,'bold');
-    doc.text('TOTAL', 4, y); doc.text(fmt(s.total||0), 76, y, {align:'right'}); y += 6;
-    doc.setFont(undefined,'normal');
-    doc.text('¡Gracias por confiar en nosotros!', 40, y, {align:'center'});
-    doc.save(`servicio-${(s.clienteNombre||'ticket').replace(/\s+/g,'-')}-${new Date().toISOString().substring(0,10)}.pdf`);
-    toast('Ticket generado', 'success');
-  } catch(e) {
-    toast('Error: ' + e.message, 'error');
-  }
-}
-
 // ════════════════════════════════════════════════════════════════
 //  ELIMINAR PRODUCTO
 // ════════════════════════════════════════════════════════════════
@@ -1287,21 +1006,6 @@ async function eliminarProducto(id, nombre) {
   try {
     await db.collection('productos').doc(id).delete();
     toast(`Producto "${nombre}" eliminado`, 'success');
-  } catch(e) {
-    toast('Error al eliminar: ' + e.message, 'error');
-  }
-}
-
-// ════════════════════════════════════════════════════════════════
-//  ELIMINAR SERVICIO
-// ════════════════════════════════════════════════════════════════
-async function eliminarServicio(id) {
-  const s = allServicios.find(x => x.id === id);
-  const label = s ? `la orden de ${s.clienteNombre||'este cliente'}` : 'esta orden';
-  if (!confirm(`¿Eliminar ${label}?\nEsta acción no se puede deshacer.`)) return;
-  try {
-    await db.collection('ordenes_servicio').doc(id).delete();
-    toast('Orden de servicio eliminada', 'success');
   } catch(e) {
     toast('Error al eliminar: ' + e.message, 'error');
   }

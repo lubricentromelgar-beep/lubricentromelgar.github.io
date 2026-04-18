@@ -82,10 +82,6 @@
       <button class="nav-item" data-page="ventas">
         <span class="nav-icon">🛒</span> Nueva venta
       </button>
-      <button class="nav-item" data-page="servicios">
-        <span class="nav-icon">🔧</span> Servicios
-      </button>
-
       <div class="nav-section-label" style="margin-top:8px">Gestión</div>
       <button class="nav-item" data-page="inventario">
         <span class="nav-icon">📦</span> Inventario
@@ -134,16 +130,11 @@
 
       <!-- ── DASHBOARD ── -->
       <div id="page-dashboard" class="page active">
-        <div class="grid-4 mb-16" id="stats-grid">
+        <div class="grid-3 mb-16" id="stats-grid">
           <div class="stat-card accent">
             <div class="stat-label">Ventas hoy</div>
             <div class="stat-value text-accent" id="stat-ventas-hoy">$0</div>
             <div class="stat-sub" id="stat-ventas-count">0 transacciones</div>
-          </div>
-          <div class="stat-card green">
-            <div class="stat-label">Servicios hoy</div>
-            <div class="stat-value text-green" id="stat-servicios-hoy">0</div>
-            <div class="stat-sub">órdenes activas</div>
           </div>
           <div class="stat-card blue">
             <div class="stat-label">Productos</div>
@@ -184,18 +175,6 @@
           </div>
         </div>
 
-        <div class="card mt-20">
-          <div class="card-header">
-            <h3>Servicios pendientes / en proceso</h3>
-            <button class="btn btn-sm btn-primary" onclick="navigate('servicios')">+ Nueva orden</button>
-          </div>
-          <div id="dash-servicios-pendientes">
-            <div class="empty-state" style="padding:20px">
-              <span class="icon" style="font-size:2rem">🔧</span>
-              <p>No hay servicios activos</p>
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- ── VENTAS (POS) ── -->
@@ -252,33 +231,6 @@
               </div>
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- ── SERVICIOS ── -->
-      <div id="page-servicios" class="page">
-        <div class="section-header">
-          <div class="section-title">Órdenes de servicio</div>
-          <button class="btn btn-primary" onclick="openModalServicio()">+ Nueva orden</button>
-        </div>
-        <div class="filter-row">
-          <button class="filter-chip active" data-filter="todos" onclick="filterServicios(this)">Todos</button>
-          <button class="filter-chip" data-filter="pendiente" onclick="filterServicios(this)">Pendiente</button>
-          <button class="filter-chip" data-filter="en_proceso" onclick="filterServicios(this)">En proceso</button>
-          <button class="filter-chip" data-filter="terminado" onclick="filterServicios(this)">Terminados</button>
-        </div>
-        <div class="table-wrap card" style="padding:0">
-          <table>
-            <thead>
-              <tr>
-                <th>#</th><th>Cliente / Vehículo</th><th>Servicio</th>
-                <th>Mecánico</th><th>Estado</th><th>Total</th><th>Fecha</th><th></th>
-              </tr>
-            </thead>
-            <tbody id="servicios-tbody">
-              <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text3)">Cargando…</td></tr>
-            </tbody>
-          </table>
         </div>
       </div>
 
@@ -811,92 +763,6 @@
       <button class="btn btn-primary" onclick="guardarCliente()">Guardar cliente</button>
     </div>
     <input type="hidden" id="cli-id">
-  </div>
-</div>
-
-<!-- Modal: Orden de Servicio -->
-<div class="modal-overlay" id="modal-servicio">
-  <div class="modal" style="max-width:620px">
-    <div class="modal-header">
-      <h2 id="modal-srv-title">Nueva orden de servicio</h2>
-      <button class="btn-close" onclick="closeModal('modal-servicio')">✕</button>
-    </div>
-    <div class="flex flex-col gap-12">
-      <div class="form-row form-row-2">
-        <div class="form-group">
-          <label class="form-label">Cliente *</label>
-          <select id="srv-cliente" onchange="onSrvClienteChange()">
-            <option value="">— Seleccionar —</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Vehículo / Placa *</label>
-          <select id="srv-vehiculo">
-            <option value="">— Primero selecciona cliente —</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-row form-row-2">
-        <div class="form-group">
-          <label class="form-label">Tipo de servicio *</label>
-          <select id="srv-tipo">
-            <option value="cambio_aceite">Cambio de aceite</option>
-            <option value="revision_frenos">Revisión de frenos</option>
-            <option value="afinacion">Afinación</option>
-            <option value="revision_general">Revisión general</option>
-            <option value="cambio_filtros">Cambio de filtros</option>
-            <option value="otro">Otro</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Mecánico</label>
-          <input type="text" id="srv-mecanico" placeholder="Nombre del mecánico">
-        </div>
-      </div>
-      <div class="form-row form-row-2">
-        <div class="form-group">
-          <label class="form-label">Kilometraje actual</label>
-          <input type="number" id="srv-km" placeholder="km al ingresar">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Próximo servicio (km)</label>
-          <input type="number" id="srv-prox-km" placeholder="km próximo cambio">
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Descripción / observaciones</label>
-        <textarea id="srv-desc" rows="2" placeholder="Detalles del servicio…"></textarea>
-      </div>
-      <hr class="divider">
-      <div class="flex items-center justify-between mb-16">
-        <h3>Productos utilizados</h3>
-        <button class="btn btn-sm btn-ghost" onclick="addSrvProducto()">+ Agregar</button>
-      </div>
-      <div id="srv-productos-list"></div>
-      <div class="form-row form-row-2">
-        <div class="form-group">
-          <label class="form-label">Mano de obra</label>
-          <input type="number" id="srv-mano-obra" placeholder="0.00" step="0.01" min="0" oninput="calcSrvTotal()">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Total estimado</label>
-          <input type="text" id="srv-total" readonly style="color:var(--accent);font-weight:700">
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Estado</label>
-        <select id="srv-estado">
-          <option value="pendiente">Pendiente</option>
-          <option value="en_proceso">En proceso</option>
-          <option value="terminado">Terminado</option>
-        </select>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modal-servicio')">Cancelar</button>
-      <button class="btn btn-primary" onclick="guardarServicio()">Guardar orden</button>
-    </div>
-    <input type="hidden" id="srv-id">
   </div>
 </div>
 
