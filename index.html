@@ -106,6 +106,12 @@
       </button>
     </div>
 
+    <button id="btn-theme" onclick="toggleTheme()">
+      <span class="theme-icon">🌙</span>
+      <span class="theme-label">Tema claro</span>
+      <span class="theme-badge" id="theme-badge">Oscuro</span>
+    </button>
+
     <div id="sidebar-user">
       <div class="user-avatar" id="user-avatar">?</div>
       <div class="user-info">
@@ -296,7 +302,7 @@
           <div class="section-title">Historial de ventas</div>
           <div class="flex gap-8 items-center">
             <input type="date" id="hist-fecha" style="width:160px" onchange="loadHistorial()">
-            <button class="btn btn-ghost" onclick="exportCSV()">📊 Exportar CSV</button>
+            <button class="btn btn-ghost" onclick="exportHistorialPDF()">📄 Exportar PDF</button>
           </div>
         </div>
         <div class="grid-3 mb-16" id="hist-stats">
@@ -333,7 +339,7 @@
         <div class="section-title mb-16">Reportes</div>
         <div class="grid-2" style="gap:20px">
           <div class="card">
-            <h3 class="mb-16">Reporte diario PDF</h3>
+            <h3 class="mb-16">Reporte diario de ventas</h3>
             <div class="form-group mb-16">
               <label class="form-label">Fecha</label>
               <input type="date" id="rpt-fecha">
@@ -343,6 +349,57 @@
           <div class="card">
             <h3 class="mb-16">Productos más vendidos</h3>
             <div id="top-productos" style="color:var(--text3);font-size:.9rem">Cargando…</div>
+          </div>
+        </div>
+
+        <!-- Reporte de inventario -->
+        <div class="card mt-20">
+          <h3 class="mb-16">Reporte de inventario</h3>
+          <div class="grid-3 mb-16" style="gap:12px">
+            <div class="form-group">
+              <label class="form-label">Categoría</label>
+              <select id="inv-rpt-categoria">
+                <option value="">Todas las categorías</option>
+                <option value="lubricante">Lubricante</option>
+                <option value="filtro">Filtro</option>
+                <option value="aditivo">Aditivo</option>
+                <option value="refrigerante">Refrigerante</option>
+                <option value="servicio">Servicio</option>
+                <option value="otro">Otro</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Estado de stock</label>
+              <select id="inv-rpt-estado">
+                <option value="">Todos</option>
+                <option value="ok">Stock OK</option>
+                <option value="bajo">Stock bajo</option>
+                <option value="agotado">Agotado</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Fecha de ingreso (desde)</label>
+              <input type="date" id="inv-rpt-fecha">
+            </div>
+          </div>
+          <div class="flex gap-8 items-center mb-16">
+            <button class="btn btn-primary" onclick="generarReporteInventario()">📦 Generar PDF inventario</button>
+            <button class="btn btn-ghost" onclick="previewReporteInventario()">👁️ Vista previa</button>
+          </div>
+          <!-- Preview table -->
+          <div id="inv-rpt-preview" style="display:none">
+            <div class="table-wrap" style="max-height:320px;overflow-y:auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Producto</th><th>Categoría</th><th>Stock</th>
+                    <th>Mín.</th><th>Precio</th><th>Estado</th>
+                  </tr>
+                </thead>
+                <tbody id="inv-rpt-tbody"></tbody>
+              </table>
+            </div>
+            <div class="flex gap-8 mt-16" style="font-size:.85rem;color:var(--text2)" id="inv-rpt-summary"></div>
           </div>
         </div>
       </div>

@@ -91,10 +91,6 @@ function updateUserUI() {
 // ════════════════════════════════════════════════════════════════
 //  LOGIN
 // ════════════════════════════════════════════════════════════════
-document.getElementById('btn-login').addEventListener('click', doLogin);
-document.getElementById('login-pass').addEventListener('keydown', e => {
-  if (e.key === 'Enter') doLogin();
-});
 
 async function doLogin() {
   const email = document.getElementById('login-email').value.trim();
@@ -120,9 +116,7 @@ async function doLogin() {
   }
 }
 
-document.getElementById('btn-logout').addEventListener('click', () => {
-  auth.signOut();
-});
+// btn-logout se registra en DOMContentLoaded
 
 // ════════════════════════════════════════════════════════════════
 //  SCREEN MANAGER
@@ -164,13 +158,7 @@ function navigate(page) {
   if (page === 'proveedores') renderProveedores();
 }
 
-document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
-  btn.addEventListener('click', () => navigate(btn.dataset.page));
-});
-
-document.getElementById('btn-menu').addEventListener('click', () => {
-  document.getElementById('sidebar').classList.toggle('open');
-});
+// nav items y btn-menu se registran en DOMContentLoaded
 
 // ════════════════════════════════════════════════════════════════
 //  APP INIT
@@ -178,6 +166,7 @@ document.getElementById('btn-menu').addEventListener('click', () => {
 let unsubs = [];
 
 function initApp() {
+  initTheme();
   navigate('dashboard');
   listenDashboard();
   listenInventario();
@@ -954,6 +943,192 @@ function generarReportePDF(ventas, fecha, config) {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  REPORTE DE INVENTARIO
+// ════════════════════════════════════════════════════════════════
+function filtrarProductosInventario() {
+  const cat    = document.getElementById('inv-rpt-categoria')?.value || '';
+  const estado = document.getElementById('inv-rpt-estado')?.value    || '';
+  const fecha  = document.getElementById('inv-rpt-fecha')?.value     || '';
+
+  return allProducts.filter(p => {
+    // Filtro categoría
+    if (cat && p.categoria !== cat) return false;
+
+    // Filtro estado
+    if (estado) {
+      const esServicio = p.categoria === 'servicio';
+      const agotado = !esServicio && (p.stock||0) === 0;
+      const bajo    = !esServicio && !agotado && (p.stock||0) <= (p.stockMin||0);
+      if (estado === 'ok'      && (agotado || bajo || esServicio)) return false;
+      if (estado === 'bajo'    && !bajo)    return false;
+      if (estado === 'agotado' && !agotado) return false;
+    }
+
+    // Filtro fecha de ingreso (createdAt)
+    if (fecha && p.createdAt) {
+      if (p.createdAt.substring(0, 10) < fecha) return false;
+    }
+
+    return true;
+  });
+}
+
+function previewReporteInventario() {
+  const prods  = filtrarProductosInventario();
+  const tbody  = document.getElementById('inv-rpt-tbody');
+  const preview = document.getElementById('inv-rpt-preview');
+  const summary = document.getElementById('inv-rpt-summary');
+
+  if (!prods.length) {
+    toast('No hay productos con esos filtros', 'error');
+    return;
+  }
+
+  tbody.innerHTML = prods.map(p => {
+    const esServicio = p.categoria === 'servicio';
+    const agotado = !esServicio && (p.stock||0) === 0;
+    const bajo    = !esServicio && !agotado && (p.stock||0) <= (p.stockMin||0);
+    const estadoBadge = esServicio
+      ? '<span class="badge badge-blue">Servicio</span>'
+      : agotado ? '<span class="badge badge-red">Agotado</span>'
+      : bajo    ? '<span class="badge badge-amber">Stock bajo</span>'
+      : '<span class="badge badge-green">OK</span>';
+    return `<tr>
+      <td style="font-size:.82rem">${p.nombre}${p.marca ? ' <span style="color:var(--text3)">'+p.marca+'</span>' : ''}</td>
+      <td><span class="badge badge-gray">${p.categoria||'—'}</span></td>
+      <td style="font-weight:600">${esServicio ? '—' : (p.stock||0)+' '+(p.unidad||'u')}</td>
+      <td style="color:var(--text3)">${esServicio ? '—' : (p.stockMin||0)}</td>
+      <td style="font-weight:600">${fmt(p.precio||0)}</td>
+      <td>${estadoBadge}</td>
+    </tr>`;
+  }).join('');
+
+  const totalItems  = prods.filter(p => p.categoria !== 'servicio').length;
+  const totalAgotados = prods.filter(p => p.categoria !== 'servicio' && (p.stock||0) === 0).length;
+  const totalBajos    = prods.filter(p => p.categoria !== 'servicio' && (p.stock||0) > 0 && (p.stock||0) <= (p.stockMin||0)).length;
+  const valorTotal    = prods.reduce((s, p) => s + ((p.precio||0) * (p.stock||0)), 0);
+
+  summary.innerHTML = `
+    <span>📦 <strong>${prods.length}</strong> productos encontrados</span>
+    <span style="margin-left:16px">⚠ <strong>${totalBajos}</strong> stock bajo</span>
+    <span style="margin-left:16px">🔴 <strong>${totalAgotados}</strong> agotados</span>
+    <span style="margin-left:16px">💰 Valor inventario: <strong>${fmt(valorTotal)}</strong></span>
+  `;
+
+  preview.style.display = 'block';
+  toast(`${prods.length} productos en la vista previa`, 'success');
+}
+
+function generarReporteInventario() {
+  const prods = filtrarProductosInventario();
+  if (!prods.length) { toast('No hay productos con esos filtros', 'error'); return; }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'landscape' });
+  const cfg = getConfig();
+
+  const cat    = document.getElementById('inv-rpt-categoria')?.value || 'Todas';
+  const estado = document.getElementById('inv-rpt-estado')?.value    || 'Todos';
+  const fecha  = document.getElementById('inv-rpt-fecha')?.value     || '';
+
+  // ── Encabezado ──
+  doc.setFontSize(16); doc.setFont(undefined, 'bold');
+  doc.text(cfg.nombre || 'Lubricentro', 148, 14, {align:'center'});
+  doc.setFontSize(10); doc.setFont(undefined, 'normal');
+  doc.text('Reporte de Inventario', 148, 21, {align:'center'});
+
+  // Filtros aplicados
+  const filtrosTxt = [
+    cat    !== 'Todas'  ? `Categoría: ${cat}`          : null,
+    estado !== 'Todos'  ? `Estado: ${estado}`           : null,
+    fecha               ? `Ingresados desde: ${fecha}`  : null,
+  ].filter(Boolean).join('  |  ') || 'Sin filtros';
+  doc.setFontSize(8); doc.setTextColor(120);
+  doc.text(filtrosTxt, 148, 27, {align:'center'});
+  doc.setTextColor(0);
+  doc.line(14, 30, 283, 30);
+
+  // ── Cabecera de tabla ──
+  let y = 37;
+  doc.setFontSize(8); doc.setFont(undefined, 'bold');
+  doc.setFillColor(30, 41, 59);
+  doc.setTextColor(241, 245, 249);
+  doc.rect(14, y - 4, 269, 7, 'F');
+  doc.text('Producto',          18,  y);
+  doc.text('Marca',             90,  y);
+  doc.text('Categoría',        125,  y);
+  doc.text('Stock',            160,  y);
+  doc.text('Mín.',             178,  y);
+  doc.text('Costo',            196,  y);
+  doc.text('Precio',           218,  y);
+  doc.text('Valor (stock)',    250,  y, {align:'right'});
+  doc.text('Estado',           283,  y, {align:'right'});
+  doc.setTextColor(0);
+  y += 6;
+
+  // ── Filas ──
+  let valorTotal = 0;
+  prods.forEach((p, i) => {
+    const esServicio = p.categoria === 'servicio';
+    const agotado = !esServicio && (p.stock||0) === 0;
+    const bajo    = !esServicio && !agotado && (p.stock||0) <= (p.stockMin||0);
+    const estadoTxt = esServicio ? 'Servicio' : agotado ? 'Agotado' : bajo ? 'Stock bajo' : 'OK';
+    const valor = (p.precio||0) * (p.stock||0);
+    valorTotal += valor;
+
+    // Alternar fondo filas
+    if (i % 2 === 0) {
+      doc.setFillColor(248, 250, 252);
+      doc.rect(14, y - 3.5, 269, 6.5, 'F');
+    }
+
+    doc.setFontSize(7.5); doc.setFont(undefined, 'normal');
+    const nombre = p.nombre.length > 32 ? p.nombre.substring(0,30)+'…' : p.nombre;
+    doc.text(nombre,                                     18,  y);
+    doc.text(p.marca||'—',                               90,  y);
+    doc.text(p.categoria||'—',                          125,  y);
+    doc.text(esServicio ? '—' : String(p.stock||0),     160,  y);
+    doc.text(esServicio ? '—' : String(p.stockMin||0),  178,  y);
+    doc.text(esServicio ? '—' : `$${(p.costo||0).toFixed(2)}`, 196, y);
+    doc.text(`$${(p.precio||0).toFixed(2)}`,            218,  y);
+    doc.text(esServicio ? '—' : `$${valor.toFixed(2)}`, 250,  y, {align:'right'});
+
+    // Estado con color
+    if (agotado)       doc.setTextColor(220, 38,  38);
+    else if (bajo)     doc.setTextColor(217,119,   6);
+    else if (esServicio) doc.setTextColor(37, 99, 235);
+    else               doc.setTextColor(5,  150, 105);
+    doc.setFont(undefined, 'bold');
+    doc.text(estadoTxt, 283, y, {align:'right'});
+    doc.setTextColor(0); doc.setFont(undefined, 'normal');
+
+    y += 6.5;
+    if (y > 190) {
+      doc.addPage();
+      y = 20;
+    }
+  });
+
+  // ── Resumen final ──
+  doc.line(14, y + 1, 283, y + 1); y += 7;
+  doc.setFontSize(9); doc.setFont(undefined, 'bold');
+  const agotados = prods.filter(p => p.categoria !== 'servicio' && (p.stock||0) === 0).length;
+  const bajos    = prods.filter(p => p.categoria !== 'servicio' && (p.stock||0) > 0 && (p.stock||0) <= (p.stockMin||0)).length;
+  doc.text(`Total productos: ${prods.length}`, 18, y);
+  doc.text(`Agotados: ${agotados}  |  Stock bajo: ${bajos}`, 100, y);
+  doc.text(`Valor total inventario: $${valorTotal.toFixed(2)}`, 283, y, {align:'right'});
+
+  // Pie
+  doc.setFontSize(7); doc.setFont(undefined, 'normal');
+  doc.setTextColor(150);
+  doc.text(`Generado el ${new Date().toLocaleString('es-SV')}`, 148, 205, {align:'center'});
+
+  const nombreArchivo = `inventario${cat !== 'Todas' ? '-'+cat : ''}${fecha ? '-desde-'+fecha : ''}-${todayStr()}.pdf`;
+  doc.save(nombreArchivo);
+  toast('PDF de inventario generado', 'success');
+}
+
+// ════════════════════════════════════════════════════════════════
 //  TICKET PDF
 // ════════════════════════════════════════════════════════════════
 function printTicket(venta) {
@@ -1444,6 +1619,34 @@ async function guardarCompra() {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  TEMA CLARO / OSCURO
+// ════════════════════════════════════════════════════════════════
+function initTheme() {
+  const saved = localStorage.getItem('lubricentro_theme') || 'dark';
+  applyTheme(saved, false);
+}
+
+function toggleTheme() {
+  const isLight = document.body.classList.contains('light');
+  applyTheme(isLight ? 'dark' : 'light', true);
+}
+
+function applyTheme(theme, save) {
+  const isLight = theme === 'light';
+  document.body.classList.toggle('light', isLight);
+
+  const btn   = document.getElementById('btn-theme');
+  const badge = document.getElementById('theme-badge');
+  if (btn) {
+    btn.querySelector('.theme-icon').textContent  = isLight ? '🌑' : '🌙';
+    btn.querySelector('.theme-label').textContent = isLight ? 'Tema oscuro' : 'Tema claro';
+  }
+  if (badge) badge.textContent = isLight ? 'Claro' : 'Oscuro';
+
+  if (save) localStorage.setItem('lubricentro_theme', theme);
+}
+
+// ════════════════════════════════════════════════════════════════
 //  CONFIG
 // ════════════════════════════════════════════════════════════════
 function getConfig() {
@@ -1506,31 +1709,75 @@ async function loadDemoData() {
 // ════════════════════════════════════════════════════════════════
 //  EXPORT CSV
 // ════════════════════════════════════════════════════════════════
-async function exportCSV() {
+async function exportHistorialPDF() {
   const fecha = document.getElementById('hist-fecha').value;
-  if (!fecha) { toast('Selecciona una fecha', 'error'); return; }
+  if (!fecha) { toast('Selecciona una fecha primero', 'error'); return; }
+
   const snap = await db.collection('ventas')
     .where('fecha', '>=', fecha + 'T00:00:00')
     .where('fecha', '<=', fecha + 'T23:59:59')
     .orderBy('fecha').get();
-  const rows = [['Hora','Items','Total','Método pago','Cajero']];
-  snap.docs.forEach(d => {
-    const v = d.data();
-    rows.push([
-      timeStr(v.fecha),
-      (v.items||[]).map(i=>`${i.nombre} x${i.qty}`).join('; '),
-      v.total?.toFixed(2)||0,
-      v.metodoPago||'',
-      v.cajeroNombre||''
-    ]);
+
+  const ventas = snap.docs.map(d => ({id: d.id, ...d.data()}))
+    .filter(v => !v.anulada); // excluir anuladas del PDF
+
+  if (!ventas.length) { toast('No hay ventas en esta fecha', 'error'); return; }
+
+  const { jsPDF } = window.jspdf;
+  const doc  = new jsPDF();
+  const cfg  = getConfig();
+  const total = ventas.reduce((s, v) => s + (v.total||0), 0);
+
+  // Encabezado
+  doc.setFontSize(16); doc.setFont(undefined, 'bold');
+  doc.text(cfg.nombre || 'Lubricentro', 105, 16, {align:'center'});
+  doc.setFontSize(10); doc.setFont(undefined, 'normal');
+  doc.text(`Historial de ventas — ${fecha}`, 105, 23, {align:'center'});
+  if (cfg.tel) doc.text(`Tel: ${cfg.tel}`, 105, 29, {align:'center'});
+  doc.line(14, 33, 196, 33);
+
+  // Columnas
+  let y = 40;
+  doc.setFontSize(8); doc.setFont(undefined, 'bold');
+  doc.text('Hora',     14,  y);
+  doc.text('Productos',36,  y);
+  doc.text('Cliente',  125, y);
+  doc.text('Método',   155, y);
+  doc.text('Total',    192, y, {align:'right'});
+  doc.setFont(undefined, 'normal');
+  y += 3; doc.line(14, y, 196, y); y += 5;
+
+  ventas.forEach(v => {
+    const items = (v.items||[]).map(i=>`${i.nombre} ×${i.qty}`).join(', ');
+    const itemsShort = items.length > 50 ? items.substring(0, 47) + '…' : items;
+    const cliente = v.clienteId ? (allClientes.find(c=>c.id===v.clienteId)?.nombre || '—') : '—';
+    const clienteShort = cliente.length > 16 ? cliente.substring(0,14)+'…' : cliente;
+
+    doc.setFontSize(8);
+    doc.text(timeStr(v.fecha),   14,  y);
+    doc.text(itemsShort,         36,  y);
+    doc.text(clienteShort,       125, y);
+    doc.text(v.metodoPago||'—',  155, y);
+    doc.setFont(undefined, 'bold');
+    doc.text(`$${(v.total||0).toFixed(2)}`, 192, y, {align:'right'});
+    doc.setFont(undefined, 'normal');
+    y += 6;
+    if (y > 272) { doc.addPage(); y = 20; }
   });
-  const csv  = rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n');
-  const blob = new Blob([csv], {type:'text/csv'});
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url; a.download = `ventas-${fecha}.csv`;
-  a.click(); URL.revokeObjectURL(url);
-  toast('CSV exportado', 'success');
+
+  // Resumen
+  doc.line(14, y, 196, y); y += 6;
+  doc.setFontSize(10); doc.setFont(undefined, 'bold');
+  doc.text(`Transacciones: ${ventas.length}`, 14, y);
+  doc.text(`Total: $${total.toFixed(2)}`, 192, y, {align:'right'});
+
+  // Pie de página
+  doc.setFontSize(7); doc.setFont(undefined, 'normal');
+  doc.setTextColor(150);
+  doc.text(`Generado el ${new Date().toLocaleString('es-SV')}`, 105, 285, {align:'center'});
+
+  doc.save(`historial-ventas-${fecha}.pdf`);
+  toast('PDF generado', 'success');
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1539,11 +1786,7 @@ async function exportCSV() {
 function closeModal(id) {
   document.getElementById(id).classList.remove('open');
 }
-document.querySelectorAll('.modal-overlay').forEach(overlay => {
-  overlay.addEventListener('click', e => {
-    if (e.target === overlay) overlay.classList.remove('open');
-  });
-});
+// modal overlays se registran en DOMContentLoaded
 
 // ════════════════════════════════════════════════════════════════
 //  TOAST
@@ -1578,8 +1821,36 @@ function timeStr(iso) {
 //  BOOT
 // ════════════════════════════════════════════════════════════════
 window.addEventListener('DOMContentLoaded', () => {
+  initTheme(); // aplica tema guardado antes de mostrar cualquier pantalla
   initFirebase();
-  // Registrar Service Worker para PWA
+
+  // ── Login ──
+  document.getElementById('btn-login').addEventListener('click', doLogin);
+  document.getElementById('login-pass').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLogin();
+  });
+
+  // ── Logout ──
+  document.getElementById('btn-logout').addEventListener('click', () => {
+    auth.signOut();
+  });
+
+  // ── Navegación ──
+  document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
+    btn.addEventListener('click', () => navigate(btn.dataset.page));
+  });
+  document.getElementById('btn-menu').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.toggle('open');
+  });
+
+  // ── Cerrar modales al hacer clic fuera ──
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', e => {
+      if (e.target === overlay) overlay.classList.remove('open');
+    });
+  });
+
+  // ── Registrar Service Worker para PWA ──
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/lubricentromelgar.github.io/sw.js')
       .catch(() => {});
