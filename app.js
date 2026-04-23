@@ -516,7 +516,10 @@ function addToCart(prodId) {
   if (!esServicio && !p.stock) { toast('Producto agotado', 'error'); return; }
   const existing = cart.find(x => x.id === prodId);
   if (existing) {
-    if (!esServicio && existing.qty >= p.stock) { toast('No hay más stock disponible', 'error'); return; }
+    if (!esServicio && existing.qty >= p.stock) {
+      toast(`Stock máximo: ${p.stock} ${p.unidad||'u'}`, 'error');
+      return;
+    }
     existing.qty++;
   } else {
     cart.push({ id: prodId, nombre: p.nombre, marca: p.marca||'', precio: p.precio, qty: 1 });
@@ -527,6 +530,17 @@ function addToCart(prodId) {
 function changeQty(prodId, delta) {
   const item = cart.find(x => x.id === prodId);
   if (!item) return;
+  const p = allProducts.find(x => x.id === prodId);
+  const esServicio = p?.categoria === 'servicio';
+
+  if (delta > 0 && !esServicio) {
+    const stockDisp = p?.stock || 0;
+    if (item.qty >= stockDisp) {
+      toast(`Stock máximo: ${stockDisp} ${p?.unidad||'u'}`, 'error');
+      return;
+    }
+  }
+
   item.qty += delta;
   if (item.qty <= 0) cart = cart.filter(x => x.id !== prodId);
   renderCart();
@@ -546,30 +560,72 @@ function renderCart() {
   const el    = document.getElementById('cart-items');
   const total = cart.reduce((s, i) => s + i.precio * i.qty, 0);
   document.getElementById('cart-total').textContent = fmt(total);
-  document.getElementById('btn-cobrar').disabled = cart.length === 0;
+
+  // Verificar si algún item supera el stock disponible
+  const hayError = cart.some(item => {
+    const p = allProducts.find(x => x.id === item.id);
+    if (!p || p.categoria === 'servicio') return false;
+    return item.qty > (p.stock || 0);
+  });
+
+  const btnCobrar = document.getElementById('btn-cobrar');
+  btnCobrar.disabled = cart.length === 0 || hayError;
 
   if (!cart.length) {
     el.innerHTML = '<div class="cart-empty">Agrega productos haciendo clic</div>';
     return;
   }
-  el.innerHTML = cart.map(item => `
-    <div class="cart-item">
+
+  el.innerHTML = cart.map(item => {
+    const p = allProducts.find(x => x.id === item.id);
+    const esServicio = p?.categoria === 'servicio';
+    const stockDisp  = esServicio ? Infinity : (p?.stock || 0);
+    const maxAlcanzado = !esServicio && item.qty >= stockDisp;
+    const sobreStock   = !esServicio && item.qty > stockDisp;
+
+    return `<div class="cart-item${sobreStock ? '" style="border-left:3px solid var(--red);padding-left:8px' : ''}">
       <div style="flex:1;min-width:0">
         <div class="cart-item-name">${item.nombre}</div>
-        <div class="cart-item-brand">${item.marca}</div>
+        <div class="cart-item-brand" style="color:${sobreStock ? 'var(--red)' : ''}">
+          ${sobreStock
+            ? `⚠ Stock insuficiente (disp: ${stockDisp})`
+            : item.marca || (esServicio ? 'Servicio' : `Stock: ${stockDisp} ${p?.unidad||'u'}`)
+          }
+        </div>
       </div>
       <div class="cart-qty-ctrl">
         <button class="qty-btn" onclick="changeQty('${item.id}',-1)">−</button>
-        <span class="qty-num">${item.qty}</span>
-        <button class="qty-btn" onclick="changeQty('${item.id}',1)">+</button>
+        <span class="qty-num" style="color:${sobreStock ? 'var(--red)' : ''}">${item.qty}</span>
+        <button class="qty-btn" onclick="changeQty('${item.id}',1)"
+          ${maxAlcanzado ? 'disabled style="opacity:.3;cursor:not-allowed"' : ''}>+</button>
       </div>
-      <div class="cart-item-total">${fmt(item.precio * item.qty)}</div>
+      <div class="cart-item-total" style="color:${sobreStock ? 'var(--red)' : ''}">${fmt(item.precio * item.qty)}</div>
       <button class="cart-item-del" onclick="removeFromCart('${item.id}')">✕</button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+
+  if (hayError) {
+    el.innerHTML += `<div style="background:var(--redBg);border:1px solid var(--red);border-radius:8px;padding:10px 12px;margin-top:8px;font-size:.82rem;color:var(--red)">
+      ⚠ Hay productos que superan el stock disponible. Ajusta las cantidades para continuar.
+    </div>`;
+  }
 }
 
 async function procesarVenta() {
   if (!cart.length) return;
+
+  // Validación final de stock antes de procesar
+  const itemsConProblema = cart.filter(item => {
+    const p = allProducts.find(x => x.id === item.id);
+    if (!p || p.categoria === 'servicio') return false;
+    return item.qty > (p.stock || 0);
+  });
+  if (itemsConProblema.length) {
+    toast('Hay productos que superan el stock disponible', 'error');
+    renderCart();
+    return;
+  }
+
   const btn = document.getElementById('btn-cobrar');
   btn.disabled = true; btn.textContent = 'Procesando…';
 
