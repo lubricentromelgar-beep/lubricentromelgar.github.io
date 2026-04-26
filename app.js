@@ -153,8 +153,19 @@ function navigate(page) {
   // Page-specific init
   if (page === 'ventas')     loadPOSProducts();
   if (page === 'proveedores') { fillProveedorSelects(); renderHistorialCompras(); }
+  if (page === 'config')    { loadConfig(); }
   if (page === 'historial') { const d = new Date(); document.getElementById('hist-fecha').value = toDateInput(d); loadHistorial(); }
-  if (page === 'reportes')   { document.getElementById('rpt-fecha').value = toDateInput(new Date()); loadTopProductos(); }
+  if (page === 'reportes')   {
+    document.getElementById('rpt-fecha').value = toDateInput(new Date());
+    loadTopProductos();
+    // Rellenar select de categorías del reporte con las categorías configuradas
+    const sel = document.getElementById('inv-rpt-categoria');
+    if (sel) {
+      const cats = [...getCategorias(), 'servicio'];
+      sel.innerHTML = '<option value="">Todas las categorías</option>' +
+        cats.map(c => `<option value="${c}">${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join('');
+    }
+  }
   if (page === 'proveedores') renderProveedores();
 }
 
@@ -299,8 +310,8 @@ function renderInventario() {
       <td>${estado}</td>
       <td>
         <div class="flex gap-8">
-          <button class="btn btn-sm btn-ghost btn-icon" onclick='editProducto("${p.id}")' title="Editar">✏️</button>
-          <button class="btn btn-sm btn-danger btn-icon" onclick='eliminarProducto("${p.id}","${p.nombre}")' title="Eliminar">🗑️</button>
+          <button class="btn btn-sm btn-ghost btn-icon" onclick="abrirEditarProducto('${p.id}')" title="Editar">✏️</button>
+          <button class="btn btn-sm btn-danger btn-icon" data-action="delete" data-id="${p.id}" data-nombre="${(p.nombre||'').replace(/"/g,'&quot;')}" title="Eliminar">🗑️</button>
         </div>
       </td>
     </tr>`;
@@ -348,28 +359,99 @@ function clearModalProducto() {
   ['prod-nombre','prod-marca','prod-sku','prod-desc'].forEach(id => document.getElementById(id).value = '');
   ['prod-costo','prod-precio','prod-stock-min','prod-stock'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('prod-id').value = '';
-  document.getElementById('prod-categoria').value = 'lubricante';
-  document.getElementById('prod-unidad').value = 'litro';
+  fillCatSelect('prod-categoria', 'lubricante');
+  fillUnidadSelect('prod-unidad', 'litro');
   onCatChange('lubricante');
 }
 
-async function editProducto(id) {
+// ── EDITAR PRODUCTO (modal independiente) ──
+function onEditCatChange(cat) {
+  const esS = cat === 'servicio';
+  const ids = ['edit-grupo-marca','edit-grupo-unidad','edit-grupo-costo','edit-stock-fields'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = esS ? 'none' : '';
+  });
+  const lbl = document.getElementById('edit-label-precio');
+  if (lbl) lbl.textContent = esS ? 'Precio del servicio *' : 'Precio venta *';
+  const title = document.getElementById('edit-prod-title');
+  if (title) title.textContent = esS ? 'Editar servicio' : 'Editar producto';
+}
+
+function abrirEditarProducto(id) {
   const p = allProducts.find(x => x.id === id);
-  if (!p) return;
-  document.getElementById('prod-id').value         = id;
-  document.getElementById('prod-nombre').value     = p.nombre || '';
-  document.getElementById('prod-marca').value      = p.marca  || '';
-  document.getElementById('prod-sku').value        = p.sku    || '';
-  document.getElementById('prod-desc').value       = p.descripcion || '';
-  document.getElementById('prod-costo').value      = p.costo  || '';
-  document.getElementById('prod-precio').value     = p.precio || '';
-  document.getElementById('prod-stock-min').value  = p.stockMin || '';
-  document.getElementById('prod-stock').value      = p.stock  || '';
-  document.getElementById('prod-categoria').value  = p.categoria || 'lubricante';
-  document.getElementById('prod-unidad').value     = p.unidad || 'litro';
-  onCatChange(p.categoria || 'lubricante');
-  document.getElementById('modal-prod-title').textContent = p.categoria === 'servicio' ? 'Editar servicio' : 'Editar producto';
-  document.getElementById('modal-producto').classList.add('open');
+  if (!p) { toast('Producto no encontrado', 'error'); return; }
+
+  // Guardar ID
+  document.getElementById('edit-prod-id').value = id;
+
+  // Llenar campos de texto
+  document.getElementById('edit-nombre').value    = p.nombre      || '';
+  document.getElementById('edit-marca').value     = p.marca       || '';
+  document.getElementById('edit-sku').value       = p.sku         || '';
+  document.getElementById('edit-desc').value      = p.descripcion || '';
+  document.getElementById('edit-costo').value     = p.costo       != null ? p.costo    : '';
+  document.getElementById('edit-precio').value    = p.precio      != null ? p.precio   : '';
+  document.getElementById('edit-stock-min').value = p.stockMin    != null ? p.stockMin : '';
+  document.getElementById('edit-stock').value     = p.stock       != null ? p.stock    : '';
+
+  // Llenar categoría
+  const selCat = document.getElementById('edit-categoria');
+  const cats   = getCategorias();
+  selCat.innerHTML =
+    cats.map(c => `<option value="${c}">${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join('') +
+    `<option value="servicio">🔧 Servicio</option>`;
+  selCat.value = p.categoria || 'lubricante';
+
+  // Llenar unidad
+  const selUni = document.getElementById('edit-unidad');
+  const units  = getUnidades();
+  selUni.innerHTML = units.map(u => `<option value="${u}">${u.charAt(0).toUpperCase()+u.slice(1)}</option>`).join('');
+  if (p.unidad && !units.includes(p.unidad)) {
+    selUni.innerHTML += `<option value="${p.unidad}">${p.unidad.charAt(0).toUpperCase()+p.unidad.slice(1)}</option>`;
+  }
+  selUni.value = p.unidad || 'litro';
+
+  // Visibilidad de campos
+  onEditCatChange(p.categoria || 'lubricante');
+
+  // Abrir modal
+  document.getElementById('modal-editar-producto').classList.add('open');
+}
+
+async function guardarEdicionProducto() {
+  const id     = document.getElementById('edit-prod-id').value;
+  const nombre = document.getElementById('edit-nombre').value.trim();
+  const precio = parseFloat(document.getElementById('edit-precio').value);
+
+  if (!id)     { toast('Error: ID no encontrado', 'error'); return; }
+  if (!nombre) { toast('El nombre es obligatorio', 'error'); return; }
+  if (isNaN(precio) || precio < 0) { toast('Ingresa un precio válido', 'error'); return; }
+
+  const cat        = document.getElementById('edit-categoria').value;
+  const esServicio = cat === 'servicio';
+
+  const data = {
+    nombre,
+    marca:       esServicio ? '' : (document.getElementById('edit-marca').value.trim()),
+    categoria:   cat,
+    unidad:      esServicio ? '' : (document.getElementById('edit-unidad').value),
+    costo:       esServicio ? 0  : (parseFloat(document.getElementById('edit-costo').value) || 0),
+    precio,
+    stockMin:    esServicio ? 0  : (parseInt(document.getElementById('edit-stock-min').value) || 0),
+    stock:       esServicio ? 0  : (parseInt(document.getElementById('edit-stock').value)     || 0),
+    sku:         esServicio ? '' : (document.getElementById('edit-sku').value.trim()),
+    descripcion: document.getElementById('edit-desc').value.trim(),
+    updatedAt:   new Date().toISOString()
+  };
+
+  try {
+    await db.collection('productos').doc(id).update(data);
+    toast('Producto actualizado', 'success');
+    closeModal('modal-editar-producto');
+  } catch(e) {
+    toast('Error al guardar: ' + e.message, 'error');
+  }
 }
 
 async function guardarProducto() {
@@ -1220,7 +1302,7 @@ function printTicket(venta) {
     doc.text(fmt(venta.total||0), 76, y, {align:'right'}); y += 5;
     doc.setFontSize(7); doc.setFont(undefined,'normal');
     doc.text(`Pago: ${venta.metodoPago||'—'}`, 40, y, {align:'center'}); y += 5;
-    doc.text('¡Gracias por su visita!', 40, y, {align:'center'});
+    doc.text(cfg.pie || '¡Gracias por su visita!', 40, y, {align:'center'});
 
     doc.autoPrint();
     doc.output('dataurlnewwindow');
@@ -1242,17 +1324,169 @@ async function eliminarProducto(id, nombre) {
   }
 }
 
-// ── Mostrar/ocultar campos de stock según categoría ──
+// ════════════════════════════════════════════════════════════════
+//  CATEGORÍAS Y UNIDADES (Config)
+// ════════════════════════════════════════════════════════════════
+const CATS_DEFAULT    = ['lubricante','filtro','aditivo','refrigerante','otro'];
+const UNIDADES_DEFAULT = ['litro','cuarto','galon','pieza','caja','unidad'];
+const CAT_FIJA        = 'servicio'; // no se puede eliminar
+
+function getCategorias() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('lubricentro_cats') || 'null');
+    return saved || [...CATS_DEFAULT];
+  } catch { return [...CATS_DEFAULT]; }
+}
+
+function getUnidades() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('lubricentro_units') || 'null');
+    return saved || [...UNIDADES_DEFAULT];
+  } catch { return [...UNIDADES_DEFAULT]; }
+}
+
+function saveCategorias(cats) {
+  localStorage.setItem('lubricentro_cats', JSON.stringify(cats));
+}
+
+function saveUnidades(units) {
+  localStorage.setItem('lubricentro_units', JSON.stringify(units));
+}
+
+function fillCatSelect(selectId, selectedVal) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const cats = getCategorias();
+  sel.innerHTML =
+    cats.map(c => `<option value="${c}">${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join('') +
+    `<option value="${CAT_FIJA}">🔧 Servicio</option>`;
+  // Si el valor no existe como opción, agregarlo para no perder dato
+  if (selectedVal) {
+    if (!sel.querySelector(`option[value="${selectedVal}"]`)) {
+      sel.innerHTML += `<option value="${selectedVal}">${selectedVal.charAt(0).toUpperCase()+selectedVal.slice(1)}</option>`;
+    }
+    sel.value = selectedVal;
+  }
+}
+
+function fillUnidadSelect(selectId, selectedVal) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const units = getUnidades();
+  sel.innerHTML = units.map(u => `<option value="${u}">${u.charAt(0).toUpperCase()+u.slice(1)}</option>`).join('');
+  if (selectedVal) {
+    if (!sel.querySelector(`option[value="${selectedVal}"]`)) {
+      sel.innerHTML += `<option value="${selectedVal}">${selectedVal.charAt(0).toUpperCase()+selectedVal.slice(1)}</option>`;
+    }
+    sel.value = selectedVal;
+  }
+}
+
+function renderListaCategorias() {
+  const el   = document.getElementById('lista-categorias');
+  if (!el) return;
+  const cats = getCategorias();
+  const todas = [...cats, CAT_FIJA];
+  if (!todas.length) {
+    el.innerHTML = '<p style="color:var(--text3);font-size:.85rem">Sin categorías</p>';
+    return;
+  }
+  el.innerHTML = todas.map((cat, i) => {
+    const fija = cat === CAT_FIJA;
+    return `<div style="display:flex;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);gap:10px">
+      <span style="font-size:15px">${fija ? '🔧' : '🏷️'}</span>
+      <span style="flex:1;font-size:.9rem;font-weight:500">${cat.charAt(0).toUpperCase()+cat.slice(1)}</span>
+      ${fija
+        ? '<span style="font-size:.72rem;color:var(--text3);background:var(--bg3);padding:2px 8px;border-radius:10px">fija</span>'
+        : `<button onclick="eliminarCategoria('${cat}')" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:18px;line-height:1;padding:0 4px" title="Eliminar">✕</button>`
+      }
+    </div>`;
+  }).join('');
+}
+
+function renderListaUnidades() {
+  const el    = document.getElementById('lista-unidades');
+  if (!el) return;
+  const units = getUnidades();
+  if (!units.length) {
+    el.innerHTML = '<p style="color:var(--text3);font-size:.85rem">Sin unidades</p>';
+    return;
+  }
+  el.innerHTML = units.map(u => `
+    <div style="display:flex;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);gap:10px">
+      <span style="font-size:15px">📐</span>
+      <span style="flex:1;font-size:.9rem;font-weight:500">${u.charAt(0).toUpperCase()+u.slice(1)}</span>
+      <button onclick="eliminarUnidad('${u}')" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:18px;line-height:1;padding:0 4px" title="Eliminar">✕</button>
+    </div>`).join('');
+}
+
+function agregarCategoria() {
+  const input = document.getElementById('nueva-categoria');
+  const val   = input.value.trim().toLowerCase();
+  if (!val) { toast('Escribe el nombre de la categoría', 'error'); return; }
+  if (val === CAT_FIJA) { toast('Esa categoría es fija', 'error'); return; }
+  const cats = getCategorias();
+  if (cats.includes(val)) { toast('Esa categoría ya existe', 'error'); return; }
+  cats.push(val);
+  saveCategorias(cats);
+  input.value = '';
+  renderListaCategorias();
+  toast(`Categoría "${val}" agregada`, 'success');
+}
+
+function eliminarCategoria(cat) {
+  if (!confirm(`¿Eliminar la categoría "${cat}"?`)) return;
+  const cats = getCategorias().filter(c => c !== cat);
+  saveCategorias(cats);
+  renderListaCategorias();
+  toast(`Categoría "${cat}" eliminada`, 'success');
+}
+
+function agregarUnidad() {
+  const input = document.getElementById('nueva-unidad');
+  const val   = input.value.trim().toLowerCase();
+  if (!val) { toast('Escribe el nombre de la unidad', 'error'); return; }
+  const units = getUnidades();
+  if (units.includes(val)) { toast('Esa unidad ya existe', 'error'); return; }
+  units.push(val);
+  saveUnidades(units);
+  input.value = '';
+  renderListaUnidades();
+  toast(`Unidad "${val}" agregada`, 'success');
+}
+
+function eliminarUnidad(u) {
+  if (!confirm(`¿Eliminar la unidad "${u}"?`)) return;
+  const units = getUnidades().filter(x => x !== u);
+  saveUnidades(units);
+  renderListaUnidades();
+  toast(`Unidad "${u}" eliminada`, 'success');
+}
+
+// ── Mostrar/ocultar campos según categoría ──
 function onCatChange(cat) {
   const esServicio = cat === 'servicio';
-  const stockFields = document.getElementById('stock-actual-group');
-  const stockMinGroup = document.getElementById('stock-min-group');
-  if (stockFields)   stockFields.style.display   = esServicio ? 'none' : '';
-  if (stockMinGroup) stockMinGroup.style.display  = esServicio ? 'none' : '';
-  // Precio label
-  const lbl = document.querySelector('label[for="prod-precio"]');
-  if (lbl && esServicio) lbl.textContent = 'Precio del servicio *';
-  else if (lbl) lbl.textContent = 'Precio venta *';
+
+  // Campos que se ocultan para servicios
+  const grupoMarca  = document.getElementById('prod-grupo-marca');
+  const grupoUnidad = document.getElementById('prod-grupo-unidad');
+  const grupoCosto  = document.getElementById('prod-grupo-costo');
+  const stockFields = document.getElementById('stock-fields');
+  const labelPrecio = document.getElementById('prod-label-precio');
+
+  if (grupoMarca)  grupoMarca.style.display  = esServicio ? 'none' : '';
+  if (grupoUnidad) grupoUnidad.style.display = esServicio ? 'none' : '';
+  if (grupoCosto)  grupoCosto.style.display  = esServicio ? 'none' : '';
+  if (stockFields) stockFields.style.display = esServicio ? 'none' : '';
+  if (labelPrecio) labelPrecio.textContent   = esServicio ? 'Precio del servicio *' : 'Precio venta *';
+
+  // Título del modal
+  const title = document.getElementById('modal-prod-title');
+  if (title && title.textContent.startsWith('Nuevo')) {
+    title.textContent = esServicio ? 'Nuevo servicio' : 'Nuevo producto';
+  }
+  const btnGuardar = document.getElementById('btn-guardar-prod');
+  if (btnGuardar) btnGuardar.textContent = esServicio ? 'Guardar servicio' : 'Guardar producto';
 }
 
 // ── Anulación de ventas ──
@@ -1714,16 +1948,75 @@ function loadConfig() {
   if (cfg.nombre) document.getElementById('cfg-nombre').value = cfg.nombre;
   if (cfg.tel)    document.getElementById('cfg-tel').value    = cfg.tel;
   if (cfg.dir)    document.getElementById('cfg-dir').value    = cfg.dir;
+  if (cfg.pie)    document.getElementById('cfg-pie') && (document.getElementById('cfg-pie').value = cfg.pie);
+  renderListaCategorias();
+  renderListaUnidades();
+  actualizarPreviewTicket();
 }
 
 function guardarConfig() {
+  const pie = document.getElementById('cfg-pie');
   const cfg = {
     nombre: document.getElementById('cfg-nombre').value.trim(),
     tel:    document.getElementById('cfg-tel').value.trim(),
-    dir:    document.getElementById('cfg-dir').value.trim()
+    dir:    document.getElementById('cfg-dir').value.trim(),
+    pie:    pie ? pie.value.trim() : ''
   };
   localStorage.setItem('lubricentro_config', JSON.stringify(cfg));
   toast('Configuración guardada', 'success');
+  actualizarPreviewTicket();
+}
+
+function actualizarPreviewTicket() {
+  const el = document.getElementById('ticket-preview');
+  if (!el) return;
+
+  const nombre = document.getElementById('cfg-nombre')?.value.trim() || 'Mi Lubricentro';
+  const tel    = document.getElementById('cfg-tel')?.value.trim()    || '';
+  const dir    = document.getElementById('cfg-dir')?.value.trim()    || '';
+  const pie    = document.getElementById('cfg-pie')?.value.trim()    || '¡Gracias por su visita!';
+
+  const ahora = new Date();
+  const fecha = ahora.toLocaleDateString('es-SV');
+  const hora  = ahora.toLocaleTimeString('es-SV', {hour:'2-digit', minute:'2-digit'});
+
+  const items = [
+    { nombre:'Valvoline 15W40 Galon', qty:1, precio:18.50, sub:18.50 },
+    { nombre:'Filtro PH2867',         qty:2, precio: 4.00, sub: 8.00 },
+    { nombre:'Cambio de aceite',      qty:1, precio: 5.00, sub: 5.00 },
+  ];
+  const total = items.reduce((s,i) => s + i.sub, 0);
+
+  const itemsHTML = items.map(i => `
+    <div style="display:flex;justify-content:space-between;gap:4px;margin:2px 0">
+      <span style="flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${i.nombre}</span>
+      <span style="white-space:nowrap">$${i.precio.toFixed(2)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;color:#666;font-size:9.5px">
+      <span>${i.qty} unidad(es)</span>
+      <span>$${i.sub.toFixed(2)}</span>
+    </div>`).join('');
+
+  el.innerHTML = `
+    <div style="text-align:center;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:bold;letter-spacing:.02em">${nombre}</div>
+      ${tel ? `<div style="font-size:10px">${tel}</div>` : ''}
+      ${dir ? `<div style="font-size:10px">${dir}</div>` : ''}
+    </div>
+    <div style="border-top:1px dashed #bbb;margin:6px 0"></div>
+    <div style="display:flex;justify-content:space-between;font-size:9.5px;color:#666;margin-bottom:6px">
+      <span>${fecha} ${hora}</span><span>Cajero: Admin</span>
+    </div>
+    <div style="border-top:1px dashed #bbb;margin:6px 0"></div>
+    ${itemsHTML}
+    <div style="border-top:1px dashed #bbb;margin:6px 0"></div>
+    <div style="display:flex;justify-content:space-between;font-weight:bold;font-size:12px;margin:4px 0">
+      <span>TOTAL</span><span>$${total.toFixed(2)}</span>
+    </div>
+    <div style="font-size:9.5px;color:#666;margin:2px 0">Pago: Efectivo</div>
+    <div style="border-top:1px dashed #bbb;margin:6px 0"></div>
+    <div style="text-align:center;font-size:9.5px;color:#555">${pie}</div>
+  `;
 }
 
 // ════════════════════════════════════════════════════════════════
