@@ -106,6 +106,12 @@
       </button>
     </div>
 
+    <button id="btn-theme" onclick="toggleTheme()">
+      <span class="theme-icon">🌙</span>
+      <span class="theme-label">Tema claro</span>
+      <span class="theme-badge" id="theme-badge">Oscuro</span>
+    </button>
+
     <div id="sidebar-user">
       <div class="user-avatar" id="user-avatar">?</div>
       <div class="user-info">
@@ -296,7 +302,7 @@
           <div class="section-title">Historial de ventas</div>
           <div class="flex gap-8 items-center">
             <input type="date" id="hist-fecha" style="width:160px" onchange="loadHistorial()">
-            <button class="btn btn-ghost" onclick="exportCSV()">📊 Exportar CSV</button>
+            <button class="btn btn-ghost" onclick="exportHistorialPDF()">📄 Exportar PDF</button>
           </div>
         </div>
         <div class="grid-3 mb-16" id="hist-stats">
@@ -333,7 +339,7 @@
         <div class="section-title mb-16">Reportes</div>
         <div class="grid-2" style="gap:20px">
           <div class="card">
-            <h3 class="mb-16">Reporte diario PDF</h3>
+            <h3 class="mb-16">Reporte diario de ventas</h3>
             <div class="form-group mb-16">
               <label class="form-label">Fecha</label>
               <input type="date" id="rpt-fecha">
@@ -343,6 +349,57 @@
           <div class="card">
             <h3 class="mb-16">Productos más vendidos</h3>
             <div id="top-productos" style="color:var(--text3);font-size:.9rem">Cargando…</div>
+          </div>
+        </div>
+
+        <!-- Reporte de inventario -->
+        <div class="card mt-20">
+          <h3 class="mb-16">Reporte de inventario</h3>
+          <div class="grid-3 mb-16" style="gap:12px">
+            <div class="form-group">
+              <label class="form-label">Categoría</label>
+              <select id="inv-rpt-categoria">
+                <option value="">Todas las categorías</option>
+                <option value="lubricante">Lubricante</option>
+                <option value="filtro">Filtro</option>
+                <option value="aditivo">Aditivo</option>
+                <option value="refrigerante">Refrigerante</option>
+                <option value="servicio">Servicio</option>
+                <option value="otro">Otro</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Estado de stock</label>
+              <select id="inv-rpt-estado">
+                <option value="">Todos</option>
+                <option value="ok">Stock OK</option>
+                <option value="bajo">Stock bajo</option>
+                <option value="agotado">Agotado</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Fecha de ingreso (desde)</label>
+              <input type="date" id="inv-rpt-fecha">
+            </div>
+          </div>
+          <div class="flex gap-8 items-center mb-16">
+            <button class="btn btn-primary" onclick="generarReporteInventario()">📦 Generar PDF inventario</button>
+            <button class="btn btn-ghost" onclick="previewReporteInventario()">👁️ Vista previa</button>
+          </div>
+          <!-- Preview table -->
+          <div id="inv-rpt-preview" style="display:none">
+            <div class="table-wrap" style="max-height:320px;overflow-y:auto">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Producto</th><th>Categoría</th><th>Stock</th>
+                    <th>Mín.</th><th>Precio</th><th>Estado</th>
+                  </tr>
+                </thead>
+                <tbody id="inv-rpt-tbody"></tbody>
+              </table>
+            </div>
+            <div class="flex gap-8 mt-16" style="font-size:.85rem;color:var(--text2)" id="inv-rpt-summary"></div>
           </div>
         </div>
       </div>
@@ -414,23 +471,77 @@
       <div id="page-config" class="page">
         <div class="section-title mb-16">Configuración</div>
         <div class="grid-2" style="gap:20px">
-          <div class="card">
+
+          <!-- Datos del negocio + preview ticket -->
+          <div class="card" style="grid-column:1/-1">
             <h3 class="mb-16">Datos del negocio</h3>
-            <div class="flex flex-col gap-12">
-              <div class="form-group">
-                <label class="form-label">Nombre del negocio</label>
-                <input type="text" id="cfg-nombre" placeholder="Mi Lubricentro">
+            <div style="display:grid;grid-template-columns:1fr auto;gap:32px;align-items:start">
+              <!-- Formulario -->
+              <div class="flex flex-col gap-12">
+                <div class="form-group">
+                  <label class="form-label">Nombre del negocio</label>
+                  <input type="text" id="cfg-nombre" placeholder="Mi Lubricentro" oninput="actualizarPreviewTicket()">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Teléfono</label>
+                  <input type="text" id="cfg-tel" placeholder="+503 0000-0000" oninput="actualizarPreviewTicket()">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Dirección</label>
+                  <input type="text" id="cfg-dir" placeholder="Calle principal #123" oninput="actualizarPreviewTicket()">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Mensaje de pie (opcional)</label>
+                  <input type="text" id="cfg-pie" placeholder="¡Gracias por su visita!" oninput="actualizarPreviewTicket()">
+                </div>
+                <button class="btn btn-primary" onclick="guardarConfig()">Guardar cambios</button>
               </div>
-              <div class="form-group">
-                <label class="form-label">Teléfono</label>
-                <input type="text" id="cfg-tel" placeholder="+503 0000-0000">
+
+              <!-- Preview ticket -->
+              <div>
+                <div style="font-size:.78rem;color:var(--text3);text-align:center;margin-bottom:8px;letter-spacing:.05em">VISTA PREVIA DEL TICKET</div>
+                <div id="ticket-preview" style="
+                  width:220px;
+                  background:#fff;
+                  color:#111;
+                  border-radius:4px;
+                  padding:16px 12px;
+                  font-family:'Courier New',monospace;
+                  font-size:11px;
+                  line-height:1.6;
+                  box-shadow:0 2px 12px rgba(0,0,0,.25);
+                  position:relative;
+                ">
+                  <!-- generado por JS -->
+                </div>
+                <div style="font-size:.72rem;color:var(--text3);text-align:center;margin-top:8px">
+                  El ticket real se genera en PDF al vender
+                </div>
               </div>
-              <div class="form-group">
-                <label class="form-label">Dirección</label>
-                <input type="text" id="cfg-dir" placeholder="Calle principal #123">
-              </div>
-              <button class="btn btn-primary" onclick="guardarConfig()">Guardar</button>
             </div>
+          </div>
+
+          <!-- Categorías -->
+          <div class="card">
+            <h3 class="mb-16">Categorías de productos</h3>
+            <div class="flex gap-8 mb-12">
+              <input type="text" id="nueva-categoria" placeholder="Nueva categoría…" style="flex:1">
+              <button class="btn btn-primary" onclick="agregarCategoria()">+ Agregar</button>
+            </div>
+            <div id="lista-categorias" style="border:1px solid var(--border);border-radius:10px;overflow:hidden;max-height:260px;overflow-y:auto"></div>
+            <p style="font-size:.78rem;color:var(--text3);margin-top:12px">
+              La categoría <strong>servicio</strong> es fija y no se puede eliminar.
+            </p>
+          </div>
+
+          <!-- Unidades de medida -->
+          <div class="card">
+            <h3 class="mb-16">Unidades de medida</h3>
+            <div class="flex gap-8 mb-12">
+              <input type="text" id="nueva-unidad" placeholder="Nueva unidad…" style="flex:1">
+              <button class="btn btn-primary" onclick="agregarUnidad()">+ Agregar</button>
+            </div>
+            <div id="lista-unidades" style="border:1px solid var(--border);border-radius:10px;overflow:hidden;max-height:260px;overflow-y:auto"></div>
           </div>
 
         </div>
@@ -599,68 +710,64 @@
       <button class="btn-close" onclick="closeModal('modal-producto')">✕</button>
     </div>
     <div class="flex flex-col gap-12">
+
+      <!-- Nombre + Marca (marca se oculta para servicios) -->
       <div class="form-row form-row-2">
         <div class="form-group">
           <label class="form-label">Nombre *</label>
-          <input type="text" id="prod-nombre" placeholder="Aceite Mobil 15W40">
+          <input type="text" id="prod-nombre" placeholder="Nombre del producto o servicio">
         </div>
-        <div class="form-group">
+        <div class="form-group" id="prod-grupo-marca">
           <label class="form-label">Marca</label>
-          <input type="text" id="prod-marca" placeholder="Mobil">
+          <input type="text" id="prod-marca" placeholder="Mobil, Valvoline…">
         </div>
       </div>
+
+      <!-- Categoría + Unidad (unidad se oculta para servicios) -->
       <div class="form-row form-row-2">
         <div class="form-group">
           <label class="form-label">Categoría *</label>
-          <select id="prod-categoria" onchange="onCatChange(this.value)">
-            <option value="lubricante">Lubricante</option>
-            <option value="filtro">Filtro</option>
-            <option value="aditivo">Aditivo</option>
-            <option value="refrigerante">Refrigerante</option>
-            <option value="servicio">🔧 Servicio</option>
-            <option value="otro">Otro</option>
-          </select>
+          <select id="prod-categoria" onchange="onCatChange(this.value)"></select>
         </div>
-        <div class="form-group">
+        <div class="form-group" id="prod-grupo-unidad">
           <label class="form-label">Unidad</label>
-          <select id="prod-unidad">
-            <option value="litro">Litro</option>
-            <option value="cuarto">Cuarto</option>
-            <option value="pieza">Pieza</option>
-            <option value="caja">Caja</option>
-            <option value="galon">Galón</option>
-          </select>
+          <select id="prod-unidad"></select>
         </div>
       </div>
-      <div id="stock-fields">
-      <div class="form-row form-row-3">
-        <div class="form-group">
+
+      <!-- Costo + Precio (costo se oculta para servicios) -->
+      <div class="form-row form-row-2">
+        <div class="form-group" id="prod-grupo-costo">
           <label class="form-label">Costo</label>
           <input type="number" id="prod-costo" placeholder="0.00" min="0" step="0.01">
         </div>
         <div class="form-group">
-          <label class="form-label">Precio venta *</label>
+          <label class="form-label" id="prod-label-precio">Precio venta *</label>
           <input type="number" id="prod-precio" placeholder="0.00" min="0" step="0.01">
         </div>
-        <div class="form-group" id="stock-min-group">
-          <label class="form-label">Stock mínimo</label>
-          <input type="number" id="prod-stock-min" placeholder="5" min="0">
+      </div>
+
+      <!-- Stock — solo para productos -->
+      <div id="stock-fields">
+        <div class="form-row form-row-3">
+          <div class="form-group" id="stock-min-group">
+            <label class="form-label">Stock mínimo</label>
+            <input type="number" id="prod-stock-min" placeholder="5" min="0">
+          </div>
+          <div class="form-group" id="stock-actual-group">
+            <label class="form-label">Stock actual</label>
+            <input type="number" id="prod-stock" placeholder="0" min="0">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Código / SKU</label>
+            <input type="text" id="prod-sku" placeholder="LUB-001">
+          </div>
         </div>
       </div>
-      <div class="form-row form-row-2" id="stock-actual-group">
-        <div class="form-group">
-          <label class="form-label">Stock actual</label>
-          <input type="number" id="prod-stock" placeholder="0" min="0">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Código / SKU</label>
-          <input type="text" id="prod-sku" placeholder="LUB-001">
-        </div>
-      </div>
-      </div>
+
       <div class="form-group">
         <label class="form-label">Descripción</label>
-        <input type="text" id="prod-desc" placeholder="Viscosidad, aplicación, etc.">
+        <input type="text" id="prod-desc" placeholder="Detalles adicionales…">
       </div>
     </div>
     <div class="modal-footer">
@@ -668,6 +775,73 @@
       <button class="btn btn-primary" onclick="guardarProducto()">Guardar producto</button>
     </div>
     <input type="hidden" id="prod-id">
+  </div>
+</div>
+
+<!-- Modal: Editar Producto -->
+<div class="modal-overlay" id="modal-editar-producto">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="edit-prod-title">Editar producto</h2>
+      <button class="btn-close" onclick="closeModal('modal-editar-producto')">✕</button>
+    </div>
+    <div class="flex flex-col gap-12">
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Nombre *</label>
+          <input type="text" id="edit-nombre" placeholder="Nombre del producto">
+        </div>
+        <div class="form-group" id="edit-grupo-marca">
+          <label class="form-label">Marca</label>
+          <input type="text" id="edit-marca" placeholder="Mobil, Valvoline…">
+        </div>
+      </div>
+      <div class="form-row form-row-2">
+        <div class="form-group">
+          <label class="form-label">Categoría *</label>
+          <select id="edit-categoria" onchange="onEditCatChange(this.value)"></select>
+        </div>
+        <div class="form-group" id="edit-grupo-unidad">
+          <label class="form-label">Unidad</label>
+          <select id="edit-unidad"></select>
+        </div>
+      </div>
+      <div class="form-row form-row-2">
+        <div class="form-group" id="edit-grupo-costo">
+          <label class="form-label">Costo</label>
+          <input type="number" id="edit-costo" placeholder="0.00" min="0" step="0.01">
+        </div>
+        <div class="form-group">
+          <label class="form-label" id="edit-label-precio">Precio venta *</label>
+          <input type="number" id="edit-precio" placeholder="0.00" min="0" step="0.01">
+        </div>
+      </div>
+      <div id="edit-stock-fields">
+        <div class="form-row form-row-3">
+          <div class="form-group">
+            <label class="form-label">Stock mínimo</label>
+            <input type="number" id="edit-stock-min" placeholder="5" min="0">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Stock actual</label>
+            <input type="number" id="edit-stock" placeholder="0" min="0">
+          </div>
+          <div class="form-group">
+            <label class="form-label">SKU / Código</label>
+            <input type="text" id="edit-sku" placeholder="LUB-001">
+          </div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Descripción</label>
+        <input type="text" id="edit-desc" placeholder="Detalles adicionales…">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-editar-producto')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarEdicionProducto()">Guardar cambios</button>
+    </div>
+    <input type="hidden" id="edit-prod-id">
   </div>
 </div>
 

@@ -91,10 +91,6 @@ function updateUserUI() {
 // ════════════════════════════════════════════════════════════════
 //  LOGIN
 // ════════════════════════════════════════════════════════════════
-document.getElementById('btn-login').addEventListener('click', doLogin);
-document.getElementById('login-pass').addEventListener('keydown', e => {
-  if (e.key === 'Enter') doLogin();
-});
 
 async function doLogin() {
   const email = document.getElementById('login-email').value.trim();
@@ -120,9 +116,7 @@ async function doLogin() {
   }
 }
 
-document.getElementById('btn-logout').addEventListener('click', () => {
-  auth.signOut();
-});
+// btn-logout se registra en DOMContentLoaded
 
 // ════════════════════════════════════════════════════════════════
 //  SCREEN MANAGER
@@ -159,18 +153,23 @@ function navigate(page) {
   // Page-specific init
   if (page === 'ventas')     loadPOSProducts();
   if (page === 'proveedores') { fillProveedorSelects(); renderHistorialCompras(); }
+  if (page === 'config')    { loadConfig(); }
   if (page === 'historial') { const d = new Date(); document.getElementById('hist-fecha').value = toDateInput(d); loadHistorial(); }
-  if (page === 'reportes')   { document.getElementById('rpt-fecha').value = toDateInput(new Date()); loadTopProductos(); }
+  if (page === 'reportes')   {
+    document.getElementById('rpt-fecha').value = toDateInput(new Date());
+    loadTopProductos();
+    // Rellenar select de categorías del reporte con las categorías configuradas
+    const sel = document.getElementById('inv-rpt-categoria');
+    if (sel) {
+      const cats = [...getCategorias(), 'servicio'];
+      sel.innerHTML = '<option value="">Todas las categorías</option>' +
+        cats.map(c => `<option value="${c}">${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join('');
+    }
+  }
   if (page === 'proveedores') renderProveedores();
 }
 
-document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
-  btn.addEventListener('click', () => navigate(btn.dataset.page));
-});
-
-document.getElementById('btn-menu').addEventListener('click', () => {
-  document.getElementById('sidebar').classList.toggle('open');
-});
+// nav items y btn-menu se registran en DOMContentLoaded
 
 // ════════════════════════════════════════════════════════════════
 //  APP INIT
@@ -178,6 +177,7 @@ document.getElementById('btn-menu').addEventListener('click', () => {
 let unsubs = [];
 
 function initApp() {
+  initTheme();
   navigate('dashboard');
   listenDashboard();
   listenInventario();
@@ -310,8 +310,8 @@ function renderInventario() {
       <td>${estado}</td>
       <td>
         <div class="flex gap-8">
-          <button class="btn btn-sm btn-ghost btn-icon" onclick='editProducto("${p.id}")' title="Editar">✏️</button>
-          <button class="btn btn-sm btn-danger btn-icon" onclick='eliminarProducto("${p.id}","${p.nombre}")' title="Eliminar">🗑️</button>
+          <button class="btn btn-sm btn-ghost btn-icon" onclick="abrirEditarProducto('${p.id}')" title="Editar">✏️</button>
+          <button class="btn btn-sm btn-danger btn-icon" data-action="delete" data-id="${p.id}" data-nombre="${(p.nombre||'').replace(/"/g,'&quot;')}" title="Eliminar">🗑️</button>
         </div>
       </td>
     </tr>`;
@@ -359,28 +359,99 @@ function clearModalProducto() {
   ['prod-nombre','prod-marca','prod-sku','prod-desc'].forEach(id => document.getElementById(id).value = '');
   ['prod-costo','prod-precio','prod-stock-min','prod-stock'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('prod-id').value = '';
-  document.getElementById('prod-categoria').value = 'lubricante';
-  document.getElementById('prod-unidad').value = 'litro';
+  fillCatSelect('prod-categoria', 'lubricante');
+  fillUnidadSelect('prod-unidad', 'litro');
   onCatChange('lubricante');
 }
 
-async function editProducto(id) {
+// ── EDITAR PRODUCTO (modal independiente) ──
+function onEditCatChange(cat) {
+  const esS = cat === 'servicio';
+  const ids = ['edit-grupo-marca','edit-grupo-unidad','edit-grupo-costo','edit-stock-fields'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = esS ? 'none' : '';
+  });
+  const lbl = document.getElementById('edit-label-precio');
+  if (lbl) lbl.textContent = esS ? 'Precio del servicio *' : 'Precio venta *';
+  const title = document.getElementById('edit-prod-title');
+  if (title) title.textContent = esS ? 'Editar servicio' : 'Editar producto';
+}
+
+function abrirEditarProducto(id) {
   const p = allProducts.find(x => x.id === id);
-  if (!p) return;
-  document.getElementById('prod-id').value         = id;
-  document.getElementById('prod-nombre').value     = p.nombre || '';
-  document.getElementById('prod-marca').value      = p.marca  || '';
-  document.getElementById('prod-sku').value        = p.sku    || '';
-  document.getElementById('prod-desc').value       = p.descripcion || '';
-  document.getElementById('prod-costo').value      = p.costo  || '';
-  document.getElementById('prod-precio').value     = p.precio || '';
-  document.getElementById('prod-stock-min').value  = p.stockMin || '';
-  document.getElementById('prod-stock').value      = p.stock  || '';
-  document.getElementById('prod-categoria').value  = p.categoria || 'lubricante';
-  document.getElementById('prod-unidad').value     = p.unidad || 'litro';
-  onCatChange(p.categoria || 'lubricante');
-  document.getElementById('modal-prod-title').textContent = p.categoria === 'servicio' ? 'Editar servicio' : 'Editar producto';
-  document.getElementById('modal-producto').classList.add('open');
+  if (!p) { toast('Producto no encontrado', 'error'); return; }
+
+  // Guardar ID
+  document.getElementById('edit-prod-id').value = id;
+
+  // Llenar campos de texto
+  document.getElementById('edit-nombre').value    = p.nombre      || '';
+  document.getElementById('edit-marca').value     = p.marca       || '';
+  document.getElementById('edit-sku').value       = p.sku         || '';
+  document.getElementById('edit-desc').value      = p.descripcion || '';
+  document.getElementById('edit-costo').value     = p.costo       != null ? p.costo    : '';
+  document.getElementById('edit-precio').value    = p.precio      != null ? p.precio   : '';
+  document.getElementById('edit-stock-min').value = p.stockMin    != null ? p.stockMin : '';
+  document.getElementById('edit-stock').value     = p.stock       != null ? p.stock    : '';
+
+  // Llenar categoría
+  const selCat = document.getElementById('edit-categoria');
+  const cats   = getCategorias();
+  selCat.innerHTML =
+    cats.map(c => `<option value="${c}">${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join('') +
+    `<option value="servicio">🔧 Servicio</option>`;
+  selCat.value = p.categoria || 'lubricante';
+
+  // Llenar unidad
+  const selUni = document.getElementById('edit-unidad');
+  const units  = getUnidades();
+  selUni.innerHTML = units.map(u => `<option value="${u}">${u.charAt(0).toUpperCase()+u.slice(1)}</option>`).join('');
+  if (p.unidad && !units.includes(p.unidad)) {
+    selUni.innerHTML += `<option value="${p.unidad}">${p.unidad.charAt(0).toUpperCase()+p.unidad.slice(1)}</option>`;
+  }
+  selUni.value = p.unidad || 'litro';
+
+  // Visibilidad de campos
+  onEditCatChange(p.categoria || 'lubricante');
+
+  // Abrir modal
+  document.getElementById('modal-editar-producto').classList.add('open');
+}
+
+async function guardarEdicionProducto() {
+  const id     = document.getElementById('edit-prod-id').value;
+  const nombre = document.getElementById('edit-nombre').value.trim();
+  const precio = parseFloat(document.getElementById('edit-precio').value);
+
+  if (!id)     { toast('Error: ID no encontrado', 'error'); return; }
+  if (!nombre) { toast('El nombre es obligatorio', 'error'); return; }
+  if (isNaN(precio) || precio < 0) { toast('Ingresa un precio válido', 'error'); return; }
+
+  const cat        = document.getElementById('edit-categoria').value;
+  const esServicio = cat === 'servicio';
+
+  const data = {
+    nombre,
+    marca:       esServicio ? '' : (document.getElementById('edit-marca').value.trim()),
+    categoria:   cat,
+    unidad:      esServicio ? '' : (document.getElementById('edit-unidad').value),
+    costo:       esServicio ? 0  : (parseFloat(document.getElementById('edit-costo').value) || 0),
+    precio,
+    stockMin:    esServicio ? 0  : (parseInt(document.getElementById('edit-stock-min').value) || 0),
+    stock:       esServicio ? 0  : (parseInt(document.getElementById('edit-stock').value)     || 0),
+    sku:         esServicio ? '' : (document.getElementById('edit-sku').value.trim()),
+    descripcion: document.getElementById('edit-desc').value.trim(),
+    updatedAt:   new Date().toISOString()
+  };
+
+  try {
+    await db.collection('productos').doc(id).update(data);
+    toast('Producto actualizado', 'success');
+    closeModal('modal-editar-producto');
+  } catch(e) {
+    toast('Error al guardar: ' + e.message, 'error');
+  }
 }
 
 async function guardarProducto() {
@@ -527,7 +598,10 @@ function addToCart(prodId) {
   if (!esServicio && !p.stock) { toast('Producto agotado', 'error'); return; }
   const existing = cart.find(x => x.id === prodId);
   if (existing) {
-    if (!esServicio && existing.qty >= p.stock) { toast('No hay más stock disponible', 'error'); return; }
+    if (!esServicio && existing.qty >= p.stock) {
+      toast(`Stock máximo: ${p.stock} ${p.unidad||'u'}`, 'error');
+      return;
+    }
     existing.qty++;
   } else {
     cart.push({ id: prodId, nombre: p.nombre, marca: p.marca||'', precio: p.precio, qty: 1 });
@@ -538,6 +612,17 @@ function addToCart(prodId) {
 function changeQty(prodId, delta) {
   const item = cart.find(x => x.id === prodId);
   if (!item) return;
+  const p = allProducts.find(x => x.id === prodId);
+  const esServicio = p?.categoria === 'servicio';
+
+  if (delta > 0 && !esServicio) {
+    const stockDisp = p?.stock || 0;
+    if (item.qty >= stockDisp) {
+      toast(`Stock máximo: ${stockDisp} ${p?.unidad||'u'}`, 'error');
+      return;
+    }
+  }
+
   item.qty += delta;
   if (item.qty <= 0) cart = cart.filter(x => x.id !== prodId);
   renderCart();
@@ -557,30 +642,72 @@ function renderCart() {
   const el    = document.getElementById('cart-items');
   const total = cart.reduce((s, i) => s + i.precio * i.qty, 0);
   document.getElementById('cart-total').textContent = fmt(total);
-  document.getElementById('btn-cobrar').disabled = cart.length === 0;
+
+  // Verificar si algún item supera el stock disponible
+  const hayError = cart.some(item => {
+    const p = allProducts.find(x => x.id === item.id);
+    if (!p || p.categoria === 'servicio') return false;
+    return item.qty > (p.stock || 0);
+  });
+
+  const btnCobrar = document.getElementById('btn-cobrar');
+  btnCobrar.disabled = cart.length === 0 || hayError;
 
   if (!cart.length) {
     el.innerHTML = '<div class="cart-empty">Agrega productos haciendo clic</div>';
     return;
   }
-  el.innerHTML = cart.map(item => `
-    <div class="cart-item">
+
+  el.innerHTML = cart.map(item => {
+    const p = allProducts.find(x => x.id === item.id);
+    const esServicio = p?.categoria === 'servicio';
+    const stockDisp  = esServicio ? Infinity : (p?.stock || 0);
+    const maxAlcanzado = !esServicio && item.qty >= stockDisp;
+    const sobreStock   = !esServicio && item.qty > stockDisp;
+
+    return `<div class="cart-item${sobreStock ? '" style="border-left:3px solid var(--red);padding-left:8px' : ''}">
       <div style="flex:1;min-width:0">
         <div class="cart-item-name">${item.nombre}</div>
-        <div class="cart-item-brand">${item.marca}</div>
+        <div class="cart-item-brand" style="color:${sobreStock ? 'var(--red)' : ''}">
+          ${sobreStock
+            ? `⚠ Stock insuficiente (disp: ${stockDisp})`
+            : item.marca || (esServicio ? 'Servicio' : `Stock: ${stockDisp} ${p?.unidad||'u'}`)
+          }
+        </div>
       </div>
       <div class="cart-qty-ctrl">
         <button class="qty-btn" onclick="changeQty('${item.id}',-1)">−</button>
-        <span class="qty-num">${item.qty}</span>
-        <button class="qty-btn" onclick="changeQty('${item.id}',1)">+</button>
+        <span class="qty-num" style="color:${sobreStock ? 'var(--red)' : ''}">${item.qty}</span>
+        <button class="qty-btn" onclick="changeQty('${item.id}',1)"
+          ${maxAlcanzado ? 'disabled style="opacity:.3;cursor:not-allowed"' : ''}>+</button>
       </div>
-      <div class="cart-item-total">${fmt(item.precio * item.qty)}</div>
+      <div class="cart-item-total" style="color:${sobreStock ? 'var(--red)' : ''}">${fmt(item.precio * item.qty)}</div>
       <button class="cart-item-del" onclick="removeFromCart('${item.id}')">✕</button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+
+  if (hayError) {
+    el.innerHTML += `<div style="background:var(--redBg);border:1px solid var(--red);border-radius:8px;padding:10px 12px;margin-top:8px;font-size:.82rem;color:var(--red)">
+      ⚠ Hay productos que superan el stock disponible. Ajusta las cantidades para continuar.
+    </div>`;
+  }
 }
 
 async function procesarVenta() {
   if (!cart.length) return;
+
+  // Validación final de stock antes de procesar
+  const itemsConProblema = cart.filter(item => {
+    const p = allProducts.find(x => x.id === item.id);
+    if (!p || p.categoria === 'servicio') return false;
+    return item.qty > (p.stock || 0);
+  });
+  if (itemsConProblema.length) {
+    toast('Hay productos que superan el stock disponible', 'error');
+    renderCart();
+    return;
+  }
+
   const btn = document.getElementById('btn-cobrar');
   btn.disabled = true; btn.textContent = 'Procesando…';
 
@@ -954,6 +1081,192 @@ function generarReportePDF(ventas, fecha, config) {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  REPORTE DE INVENTARIO
+// ════════════════════════════════════════════════════════════════
+function filtrarProductosInventario() {
+  const cat    = document.getElementById('inv-rpt-categoria')?.value || '';
+  const estado = document.getElementById('inv-rpt-estado')?.value    || '';
+  const fecha  = document.getElementById('inv-rpt-fecha')?.value     || '';
+
+  return allProducts.filter(p => {
+    // Filtro categoría
+    if (cat && p.categoria !== cat) return false;
+
+    // Filtro estado
+    if (estado) {
+      const esServicio = p.categoria === 'servicio';
+      const agotado = !esServicio && (p.stock||0) === 0;
+      const bajo    = !esServicio && !agotado && (p.stock||0) <= (p.stockMin||0);
+      if (estado === 'ok'      && (agotado || bajo || esServicio)) return false;
+      if (estado === 'bajo'    && !bajo)    return false;
+      if (estado === 'agotado' && !agotado) return false;
+    }
+
+    // Filtro fecha de ingreso (createdAt)
+    if (fecha && p.createdAt) {
+      if (p.createdAt.substring(0, 10) < fecha) return false;
+    }
+
+    return true;
+  });
+}
+
+function previewReporteInventario() {
+  const prods  = filtrarProductosInventario();
+  const tbody  = document.getElementById('inv-rpt-tbody');
+  const preview = document.getElementById('inv-rpt-preview');
+  const summary = document.getElementById('inv-rpt-summary');
+
+  if (!prods.length) {
+    toast('No hay productos con esos filtros', 'error');
+    return;
+  }
+
+  tbody.innerHTML = prods.map(p => {
+    const esServicio = p.categoria === 'servicio';
+    const agotado = !esServicio && (p.stock||0) === 0;
+    const bajo    = !esServicio && !agotado && (p.stock||0) <= (p.stockMin||0);
+    const estadoBadge = esServicio
+      ? '<span class="badge badge-blue">Servicio</span>'
+      : agotado ? '<span class="badge badge-red">Agotado</span>'
+      : bajo    ? '<span class="badge badge-amber">Stock bajo</span>'
+      : '<span class="badge badge-green">OK</span>';
+    return `<tr>
+      <td style="font-size:.82rem">${p.nombre}${p.marca ? ' <span style="color:var(--text3)">'+p.marca+'</span>' : ''}</td>
+      <td><span class="badge badge-gray">${p.categoria||'—'}</span></td>
+      <td style="font-weight:600">${esServicio ? '—' : (p.stock||0)+' '+(p.unidad||'u')}</td>
+      <td style="color:var(--text3)">${esServicio ? '—' : (p.stockMin||0)}</td>
+      <td style="font-weight:600">${fmt(p.precio||0)}</td>
+      <td>${estadoBadge}</td>
+    </tr>`;
+  }).join('');
+
+  const totalItems  = prods.filter(p => p.categoria !== 'servicio').length;
+  const totalAgotados = prods.filter(p => p.categoria !== 'servicio' && (p.stock||0) === 0).length;
+  const totalBajos    = prods.filter(p => p.categoria !== 'servicio' && (p.stock||0) > 0 && (p.stock||0) <= (p.stockMin||0)).length;
+  const valorTotal    = prods.reduce((s, p) => s + ((p.precio||0) * (p.stock||0)), 0);
+
+  summary.innerHTML = `
+    <span>📦 <strong>${prods.length}</strong> productos encontrados</span>
+    <span style="margin-left:16px">⚠ <strong>${totalBajos}</strong> stock bajo</span>
+    <span style="margin-left:16px">🔴 <strong>${totalAgotados}</strong> agotados</span>
+    <span style="margin-left:16px">💰 Valor inventario: <strong>${fmt(valorTotal)}</strong></span>
+  `;
+
+  preview.style.display = 'block';
+  toast(`${prods.length} productos en la vista previa`, 'success');
+}
+
+function generarReporteInventario() {
+  const prods = filtrarProductosInventario();
+  if (!prods.length) { toast('No hay productos con esos filtros', 'error'); return; }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'landscape' });
+  const cfg = getConfig();
+
+  const cat    = document.getElementById('inv-rpt-categoria')?.value || 'Todas';
+  const estado = document.getElementById('inv-rpt-estado')?.value    || 'Todos';
+  const fecha  = document.getElementById('inv-rpt-fecha')?.value     || '';
+
+  // ── Encabezado ──
+  doc.setFontSize(16); doc.setFont(undefined, 'bold');
+  doc.text(cfg.nombre || 'Lubricentro', 148, 14, {align:'center'});
+  doc.setFontSize(10); doc.setFont(undefined, 'normal');
+  doc.text('Reporte de Inventario', 148, 21, {align:'center'});
+
+  // Filtros aplicados
+  const filtrosTxt = [
+    cat    !== 'Todas'  ? `Categoría: ${cat}`          : null,
+    estado !== 'Todos'  ? `Estado: ${estado}`           : null,
+    fecha               ? `Ingresados desde: ${fecha}`  : null,
+  ].filter(Boolean).join('  |  ') || 'Sin filtros';
+  doc.setFontSize(8); doc.setTextColor(120);
+  doc.text(filtrosTxt, 148, 27, {align:'center'});
+  doc.setTextColor(0);
+  doc.line(14, 30, 283, 30);
+
+  // ── Cabecera de tabla ──
+  let y = 37;
+  doc.setFontSize(8); doc.setFont(undefined, 'bold');
+  doc.setFillColor(30, 41, 59);
+  doc.setTextColor(241, 245, 249);
+  doc.rect(14, y - 4, 269, 7, 'F');
+  doc.text('Producto',          18,  y);
+  doc.text('Marca',             90,  y);
+  doc.text('Categoría',        125,  y);
+  doc.text('Stock',            160,  y);
+  doc.text('Mín.',             178,  y);
+  doc.text('Costo',            196,  y);
+  doc.text('Precio',           218,  y);
+  doc.text('Valor (stock)',    250,  y, {align:'right'});
+  doc.text('Estado',           283,  y, {align:'right'});
+  doc.setTextColor(0);
+  y += 6;
+
+  // ── Filas ──
+  let valorTotal = 0;
+  prods.forEach((p, i) => {
+    const esServicio = p.categoria === 'servicio';
+    const agotado = !esServicio && (p.stock||0) === 0;
+    const bajo    = !esServicio && !agotado && (p.stock||0) <= (p.stockMin||0);
+    const estadoTxt = esServicio ? 'Servicio' : agotado ? 'Agotado' : bajo ? 'Stock bajo' : 'OK';
+    const valor = (p.precio||0) * (p.stock||0);
+    valorTotal += valor;
+
+    // Alternar fondo filas
+    if (i % 2 === 0) {
+      doc.setFillColor(248, 250, 252);
+      doc.rect(14, y - 3.5, 269, 6.5, 'F');
+    }
+
+    doc.setFontSize(7.5); doc.setFont(undefined, 'normal');
+    const nombre = p.nombre.length > 32 ? p.nombre.substring(0,30)+'…' : p.nombre;
+    doc.text(nombre,                                     18,  y);
+    doc.text(p.marca||'—',                               90,  y);
+    doc.text(p.categoria||'—',                          125,  y);
+    doc.text(esServicio ? '—' : String(p.stock||0),     160,  y);
+    doc.text(esServicio ? '—' : String(p.stockMin||0),  178,  y);
+    doc.text(esServicio ? '—' : `$${(p.costo||0).toFixed(2)}`, 196, y);
+    doc.text(`$${(p.precio||0).toFixed(2)}`,            218,  y);
+    doc.text(esServicio ? '—' : `$${valor.toFixed(2)}`, 250,  y, {align:'right'});
+
+    // Estado con color
+    if (agotado)       doc.setTextColor(220, 38,  38);
+    else if (bajo)     doc.setTextColor(217,119,   6);
+    else if (esServicio) doc.setTextColor(37, 99, 235);
+    else               doc.setTextColor(5,  150, 105);
+    doc.setFont(undefined, 'bold');
+    doc.text(estadoTxt, 283, y, {align:'right'});
+    doc.setTextColor(0); doc.setFont(undefined, 'normal');
+
+    y += 6.5;
+    if (y > 190) {
+      doc.addPage();
+      y = 20;
+    }
+  });
+
+  // ── Resumen final ──
+  doc.line(14, y + 1, 283, y + 1); y += 7;
+  doc.setFontSize(9); doc.setFont(undefined, 'bold');
+  const agotados = prods.filter(p => p.categoria !== 'servicio' && (p.stock||0) === 0).length;
+  const bajos    = prods.filter(p => p.categoria !== 'servicio' && (p.stock||0) > 0 && (p.stock||0) <= (p.stockMin||0)).length;
+  doc.text(`Total productos: ${prods.length}`, 18, y);
+  doc.text(`Agotados: ${agotados}  |  Stock bajo: ${bajos}`, 100, y);
+  doc.text(`Valor total inventario: $${valorTotal.toFixed(2)}`, 283, y, {align:'right'});
+
+  // Pie
+  doc.setFontSize(7); doc.setFont(undefined, 'normal');
+  doc.setTextColor(150);
+  doc.text(`Generado el ${new Date().toLocaleString('es-SV')}`, 148, 205, {align:'center'});
+
+  const nombreArchivo = `inventario${cat !== 'Todas' ? '-'+cat : ''}${fecha ? '-desde-'+fecha : ''}-${todayStr()}.pdf`;
+  doc.save(nombreArchivo);
+  toast('PDF de inventario generado', 'success');
+}
+
+// ════════════════════════════════════════════════════════════════
 //  TICKET PDF
 // ════════════════════════════════════════════════════════════════
 function printTicket(venta) {
@@ -989,7 +1302,7 @@ function printTicket(venta) {
     doc.text(fmt(venta.total||0), 76, y, {align:'right'}); y += 5;
     doc.setFontSize(7); doc.setFont(undefined,'normal');
     doc.text(`Pago: ${venta.metodoPago||'—'}`, 40, y, {align:'center'}); y += 5;
-    doc.text('¡Gracias por su visita!', 40, y, {align:'center'});
+    doc.text(cfg.pie || '¡Gracias por su visita!', 40, y, {align:'center'});
 
     doc.autoPrint();
     doc.output('dataurlnewwindow');
@@ -1011,17 +1324,169 @@ async function eliminarProducto(id, nombre) {
   }
 }
 
-// ── Mostrar/ocultar campos de stock según categoría ──
+// ════════════════════════════════════════════════════════════════
+//  CATEGORÍAS Y UNIDADES (Config)
+// ════════════════════════════════════════════════════════════════
+const CATS_DEFAULT    = ['lubricante','filtro','aditivo','refrigerante','otro'];
+const UNIDADES_DEFAULT = ['litro','cuarto','galon','pieza','caja','unidad'];
+const CAT_FIJA        = 'servicio'; // no se puede eliminar
+
+function getCategorias() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('lubricentro_cats') || 'null');
+    return saved || [...CATS_DEFAULT];
+  } catch { return [...CATS_DEFAULT]; }
+}
+
+function getUnidades() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('lubricentro_units') || 'null');
+    return saved || [...UNIDADES_DEFAULT];
+  } catch { return [...UNIDADES_DEFAULT]; }
+}
+
+function saveCategorias(cats) {
+  localStorage.setItem('lubricentro_cats', JSON.stringify(cats));
+}
+
+function saveUnidades(units) {
+  localStorage.setItem('lubricentro_units', JSON.stringify(units));
+}
+
+function fillCatSelect(selectId, selectedVal) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const cats = getCategorias();
+  sel.innerHTML =
+    cats.map(c => `<option value="${c}">${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join('') +
+    `<option value="${CAT_FIJA}">🔧 Servicio</option>`;
+  // Si el valor no existe como opción, agregarlo para no perder dato
+  if (selectedVal) {
+    if (!sel.querySelector(`option[value="${selectedVal}"]`)) {
+      sel.innerHTML += `<option value="${selectedVal}">${selectedVal.charAt(0).toUpperCase()+selectedVal.slice(1)}</option>`;
+    }
+    sel.value = selectedVal;
+  }
+}
+
+function fillUnidadSelect(selectId, selectedVal) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const units = getUnidades();
+  sel.innerHTML = units.map(u => `<option value="${u}">${u.charAt(0).toUpperCase()+u.slice(1)}</option>`).join('');
+  if (selectedVal) {
+    if (!sel.querySelector(`option[value="${selectedVal}"]`)) {
+      sel.innerHTML += `<option value="${selectedVal}">${selectedVal.charAt(0).toUpperCase()+selectedVal.slice(1)}</option>`;
+    }
+    sel.value = selectedVal;
+  }
+}
+
+function renderListaCategorias() {
+  const el   = document.getElementById('lista-categorias');
+  if (!el) return;
+  const cats = getCategorias();
+  const todas = [...cats, CAT_FIJA];
+  if (!todas.length) {
+    el.innerHTML = '<p style="color:var(--text3);font-size:.85rem">Sin categorías</p>';
+    return;
+  }
+  el.innerHTML = todas.map((cat, i) => {
+    const fija = cat === CAT_FIJA;
+    return `<div style="display:flex;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);gap:10px">
+      <span style="font-size:15px">${fija ? '🔧' : '🏷️'}</span>
+      <span style="flex:1;font-size:.9rem;font-weight:500">${cat.charAt(0).toUpperCase()+cat.slice(1)}</span>
+      ${fija
+        ? '<span style="font-size:.72rem;color:var(--text3);background:var(--bg3);padding:2px 8px;border-radius:10px">fija</span>'
+        : `<button onclick="eliminarCategoria('${cat}')" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:18px;line-height:1;padding:0 4px" title="Eliminar">✕</button>`
+      }
+    </div>`;
+  }).join('');
+}
+
+function renderListaUnidades() {
+  const el    = document.getElementById('lista-unidades');
+  if (!el) return;
+  const units = getUnidades();
+  if (!units.length) {
+    el.innerHTML = '<p style="color:var(--text3);font-size:.85rem">Sin unidades</p>';
+    return;
+  }
+  el.innerHTML = units.map(u => `
+    <div style="display:flex;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);gap:10px">
+      <span style="font-size:15px">📐</span>
+      <span style="flex:1;font-size:.9rem;font-weight:500">${u.charAt(0).toUpperCase()+u.slice(1)}</span>
+      <button onclick="eliminarUnidad('${u}')" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:18px;line-height:1;padding:0 4px" title="Eliminar">✕</button>
+    </div>`).join('');
+}
+
+function agregarCategoria() {
+  const input = document.getElementById('nueva-categoria');
+  const val   = input.value.trim().toLowerCase();
+  if (!val) { toast('Escribe el nombre de la categoría', 'error'); return; }
+  if (val === CAT_FIJA) { toast('Esa categoría es fija', 'error'); return; }
+  const cats = getCategorias();
+  if (cats.includes(val)) { toast('Esa categoría ya existe', 'error'); return; }
+  cats.push(val);
+  saveCategorias(cats);
+  input.value = '';
+  renderListaCategorias();
+  toast(`Categoría "${val}" agregada`, 'success');
+}
+
+function eliminarCategoria(cat) {
+  if (!confirm(`¿Eliminar la categoría "${cat}"?`)) return;
+  const cats = getCategorias().filter(c => c !== cat);
+  saveCategorias(cats);
+  renderListaCategorias();
+  toast(`Categoría "${cat}" eliminada`, 'success');
+}
+
+function agregarUnidad() {
+  const input = document.getElementById('nueva-unidad');
+  const val   = input.value.trim().toLowerCase();
+  if (!val) { toast('Escribe el nombre de la unidad', 'error'); return; }
+  const units = getUnidades();
+  if (units.includes(val)) { toast('Esa unidad ya existe', 'error'); return; }
+  units.push(val);
+  saveUnidades(units);
+  input.value = '';
+  renderListaUnidades();
+  toast(`Unidad "${val}" agregada`, 'success');
+}
+
+function eliminarUnidad(u) {
+  if (!confirm(`¿Eliminar la unidad "${u}"?`)) return;
+  const units = getUnidades().filter(x => x !== u);
+  saveUnidades(units);
+  renderListaUnidades();
+  toast(`Unidad "${u}" eliminada`, 'success');
+}
+
+// ── Mostrar/ocultar campos según categoría ──
 function onCatChange(cat) {
   const esServicio = cat === 'servicio';
-  const stockFields = document.getElementById('stock-actual-group');
-  const stockMinGroup = document.getElementById('stock-min-group');
-  if (stockFields)   stockFields.style.display   = esServicio ? 'none' : '';
-  if (stockMinGroup) stockMinGroup.style.display  = esServicio ? 'none' : '';
-  // Precio label
-  const lbl = document.querySelector('label[for="prod-precio"]');
-  if (lbl && esServicio) lbl.textContent = 'Precio del servicio *';
-  else if (lbl) lbl.textContent = 'Precio venta *';
+
+  // Campos que se ocultan para servicios
+  const grupoMarca  = document.getElementById('prod-grupo-marca');
+  const grupoUnidad = document.getElementById('prod-grupo-unidad');
+  const grupoCosto  = document.getElementById('prod-grupo-costo');
+  const stockFields = document.getElementById('stock-fields');
+  const labelPrecio = document.getElementById('prod-label-precio');
+
+  if (grupoMarca)  grupoMarca.style.display  = esServicio ? 'none' : '';
+  if (grupoUnidad) grupoUnidad.style.display = esServicio ? 'none' : '';
+  if (grupoCosto)  grupoCosto.style.display  = esServicio ? 'none' : '';
+  if (stockFields) stockFields.style.display = esServicio ? 'none' : '';
+  if (labelPrecio) labelPrecio.textContent   = esServicio ? 'Precio del servicio *' : 'Precio venta *';
+
+  // Título del modal
+  const title = document.getElementById('modal-prod-title');
+  if (title && title.textContent.startsWith('Nuevo')) {
+    title.textContent = esServicio ? 'Nuevo servicio' : 'Nuevo producto';
+  }
+  const btnGuardar = document.getElementById('btn-guardar-prod');
+  if (btnGuardar) btnGuardar.textContent = esServicio ? 'Guardar servicio' : 'Guardar producto';
 }
 
 // ── Anulación de ventas ──
@@ -1444,6 +1909,34 @@ async function guardarCompra() {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  TEMA CLARO / OSCURO
+// ════════════════════════════════════════════════════════════════
+function initTheme() {
+  const saved = localStorage.getItem('lubricentro_theme') || 'dark';
+  applyTheme(saved, false);
+}
+
+function toggleTheme() {
+  const isLight = document.body.classList.contains('light');
+  applyTheme(isLight ? 'dark' : 'light', true);
+}
+
+function applyTheme(theme, save) {
+  const isLight = theme === 'light';
+  document.body.classList.toggle('light', isLight);
+
+  const btn   = document.getElementById('btn-theme');
+  const badge = document.getElementById('theme-badge');
+  if (btn) {
+    btn.querySelector('.theme-icon').textContent  = isLight ? '🌑' : '🌙';
+    btn.querySelector('.theme-label').textContent = isLight ? 'Tema oscuro' : 'Tema claro';
+  }
+  if (badge) badge.textContent = isLight ? 'Claro' : 'Oscuro';
+
+  if (save) localStorage.setItem('lubricentro_theme', theme);
+}
+
+// ════════════════════════════════════════════════════════════════
 //  CONFIG
 // ════════════════════════════════════════════════════════════════
 function getConfig() {
@@ -1455,16 +1948,75 @@ function loadConfig() {
   if (cfg.nombre) document.getElementById('cfg-nombre').value = cfg.nombre;
   if (cfg.tel)    document.getElementById('cfg-tel').value    = cfg.tel;
   if (cfg.dir)    document.getElementById('cfg-dir').value    = cfg.dir;
+  if (cfg.pie)    document.getElementById('cfg-pie') && (document.getElementById('cfg-pie').value = cfg.pie);
+  renderListaCategorias();
+  renderListaUnidades();
+  actualizarPreviewTicket();
 }
 
 function guardarConfig() {
+  const pie = document.getElementById('cfg-pie');
   const cfg = {
     nombre: document.getElementById('cfg-nombre').value.trim(),
     tel:    document.getElementById('cfg-tel').value.trim(),
-    dir:    document.getElementById('cfg-dir').value.trim()
+    dir:    document.getElementById('cfg-dir').value.trim(),
+    pie:    pie ? pie.value.trim() : ''
   };
   localStorage.setItem('lubricentro_config', JSON.stringify(cfg));
   toast('Configuración guardada', 'success');
+  actualizarPreviewTicket();
+}
+
+function actualizarPreviewTicket() {
+  const el = document.getElementById('ticket-preview');
+  if (!el) return;
+
+  const nombre = document.getElementById('cfg-nombre')?.value.trim() || 'Mi Lubricentro';
+  const tel    = document.getElementById('cfg-tel')?.value.trim()    || '';
+  const dir    = document.getElementById('cfg-dir')?.value.trim()    || '';
+  const pie    = document.getElementById('cfg-pie')?.value.trim()    || '¡Gracias por su visita!';
+
+  const ahora = new Date();
+  const fecha = ahora.toLocaleDateString('es-SV');
+  const hora  = ahora.toLocaleTimeString('es-SV', {hour:'2-digit', minute:'2-digit'});
+
+  const items = [
+    { nombre:'Valvoline 15W40 Galon', qty:1, precio:18.50, sub:18.50 },
+    { nombre:'Filtro PH2867',         qty:2, precio: 4.00, sub: 8.00 },
+    { nombre:'Cambio de aceite',      qty:1, precio: 5.00, sub: 5.00 },
+  ];
+  const total = items.reduce((s,i) => s + i.sub, 0);
+
+  const itemsHTML = items.map(i => `
+    <div style="display:flex;justify-content:space-between;gap:4px;margin:2px 0">
+      <span style="flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${i.nombre}</span>
+      <span style="white-space:nowrap">$${i.precio.toFixed(2)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;color:#666;font-size:9.5px">
+      <span>${i.qty} unidad(es)</span>
+      <span>$${i.sub.toFixed(2)}</span>
+    </div>`).join('');
+
+  el.innerHTML = `
+    <div style="text-align:center;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:bold;letter-spacing:.02em">${nombre}</div>
+      ${tel ? `<div style="font-size:10px">${tel}</div>` : ''}
+      ${dir ? `<div style="font-size:10px">${dir}</div>` : ''}
+    </div>
+    <div style="border-top:1px dashed #bbb;margin:6px 0"></div>
+    <div style="display:flex;justify-content:space-between;font-size:9.5px;color:#666;margin-bottom:6px">
+      <span>${fecha} ${hora}</span><span>Cajero: Admin</span>
+    </div>
+    <div style="border-top:1px dashed #bbb;margin:6px 0"></div>
+    ${itemsHTML}
+    <div style="border-top:1px dashed #bbb;margin:6px 0"></div>
+    <div style="display:flex;justify-content:space-between;font-weight:bold;font-size:12px;margin:4px 0">
+      <span>TOTAL</span><span>$${total.toFixed(2)}</span>
+    </div>
+    <div style="font-size:9.5px;color:#666;margin:2px 0">Pago: Efectivo</div>
+    <div style="border-top:1px dashed #bbb;margin:6px 0"></div>
+    <div style="text-align:center;font-size:9.5px;color:#555">${pie}</div>
+  `;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1506,31 +2058,75 @@ async function loadDemoData() {
 // ════════════════════════════════════════════════════════════════
 //  EXPORT CSV
 // ════════════════════════════════════════════════════════════════
-async function exportCSV() {
+async function exportHistorialPDF() {
   const fecha = document.getElementById('hist-fecha').value;
-  if (!fecha) { toast('Selecciona una fecha', 'error'); return; }
+  if (!fecha) { toast('Selecciona una fecha primero', 'error'); return; }
+
   const snap = await db.collection('ventas')
     .where('fecha', '>=', fecha + 'T00:00:00')
     .where('fecha', '<=', fecha + 'T23:59:59')
     .orderBy('fecha').get();
-  const rows = [['Hora','Items','Total','Método pago','Cajero']];
-  snap.docs.forEach(d => {
-    const v = d.data();
-    rows.push([
-      timeStr(v.fecha),
-      (v.items||[]).map(i=>`${i.nombre} x${i.qty}`).join('; '),
-      v.total?.toFixed(2)||0,
-      v.metodoPago||'',
-      v.cajeroNombre||''
-    ]);
+
+  const ventas = snap.docs.map(d => ({id: d.id, ...d.data()}))
+    .filter(v => !v.anulada); // excluir anuladas del PDF
+
+  if (!ventas.length) { toast('No hay ventas en esta fecha', 'error'); return; }
+
+  const { jsPDF } = window.jspdf;
+  const doc  = new jsPDF();
+  const cfg  = getConfig();
+  const total = ventas.reduce((s, v) => s + (v.total||0), 0);
+
+  // Encabezado
+  doc.setFontSize(16); doc.setFont(undefined, 'bold');
+  doc.text(cfg.nombre || 'Lubricentro', 105, 16, {align:'center'});
+  doc.setFontSize(10); doc.setFont(undefined, 'normal');
+  doc.text(`Historial de ventas — ${fecha}`, 105, 23, {align:'center'});
+  if (cfg.tel) doc.text(`Tel: ${cfg.tel}`, 105, 29, {align:'center'});
+  doc.line(14, 33, 196, 33);
+
+  // Columnas
+  let y = 40;
+  doc.setFontSize(8); doc.setFont(undefined, 'bold');
+  doc.text('Hora',     14,  y);
+  doc.text('Productos',36,  y);
+  doc.text('Cliente',  125, y);
+  doc.text('Método',   155, y);
+  doc.text('Total',    192, y, {align:'right'});
+  doc.setFont(undefined, 'normal');
+  y += 3; doc.line(14, y, 196, y); y += 5;
+
+  ventas.forEach(v => {
+    const items = (v.items||[]).map(i=>`${i.nombre} ×${i.qty}`).join(', ');
+    const itemsShort = items.length > 50 ? items.substring(0, 47) + '…' : items;
+    const cliente = v.clienteId ? (allClientes.find(c=>c.id===v.clienteId)?.nombre || '—') : '—';
+    const clienteShort = cliente.length > 16 ? cliente.substring(0,14)+'…' : cliente;
+
+    doc.setFontSize(8);
+    doc.text(timeStr(v.fecha),   14,  y);
+    doc.text(itemsShort,         36,  y);
+    doc.text(clienteShort,       125, y);
+    doc.text(v.metodoPago||'—',  155, y);
+    doc.setFont(undefined, 'bold');
+    doc.text(`$${(v.total||0).toFixed(2)}`, 192, y, {align:'right'});
+    doc.setFont(undefined, 'normal');
+    y += 6;
+    if (y > 272) { doc.addPage(); y = 20; }
   });
-  const csv  = rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n');
-  const blob = new Blob([csv], {type:'text/csv'});
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url; a.download = `ventas-${fecha}.csv`;
-  a.click(); URL.revokeObjectURL(url);
-  toast('CSV exportado', 'success');
+
+  // Resumen
+  doc.line(14, y, 196, y); y += 6;
+  doc.setFontSize(10); doc.setFont(undefined, 'bold');
+  doc.text(`Transacciones: ${ventas.length}`, 14, y);
+  doc.text(`Total: $${total.toFixed(2)}`, 192, y, {align:'right'});
+
+  // Pie de página
+  doc.setFontSize(7); doc.setFont(undefined, 'normal');
+  doc.setTextColor(150);
+  doc.text(`Generado el ${new Date().toLocaleString('es-SV')}`, 105, 285, {align:'center'});
+
+  doc.save(`historial-ventas-${fecha}.pdf`);
+  toast('PDF generado', 'success');
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1539,11 +2135,7 @@ async function exportCSV() {
 function closeModal(id) {
   document.getElementById(id).classList.remove('open');
 }
-document.querySelectorAll('.modal-overlay').forEach(overlay => {
-  overlay.addEventListener('click', e => {
-    if (e.target === overlay) overlay.classList.remove('open');
-  });
-});
+// modal overlays se registran en DOMContentLoaded
 
 // ════════════════════════════════════════════════════════════════
 //  TOAST
@@ -1578,8 +2170,36 @@ function timeStr(iso) {
 //  BOOT
 // ════════════════════════════════════════════════════════════════
 window.addEventListener('DOMContentLoaded', () => {
+  initTheme(); // aplica tema guardado antes de mostrar cualquier pantalla
   initFirebase();
-  // Registrar Service Worker para PWA
+
+  // ── Login ──
+  document.getElementById('btn-login').addEventListener('click', doLogin);
+  document.getElementById('login-pass').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLogin();
+  });
+
+  // ── Logout ──
+  document.getElementById('btn-logout').addEventListener('click', () => {
+    auth.signOut();
+  });
+
+  // ── Navegación ──
+  document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
+    btn.addEventListener('click', () => navigate(btn.dataset.page));
+  });
+  document.getElementById('btn-menu').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.toggle('open');
+  });
+
+  // ── Cerrar modales al hacer clic fuera ──
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', e => {
+      if (e.target === overlay) overlay.classList.remove('open');
+    });
+  });
+
+  // ── Registrar Service Worker para PWA ──
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/lubricentromelgar.github.io/sw.js')
       .catch(() => {});
