@@ -545,3 +545,101 @@ tbody tr:last-child td { border-bottom: none; }
   .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
   .product-grid { grid-template-columns: repeat(2,1fr); }
 }
+
+/* ─── DETALLE PRODUCTO MODAL ─── */
+.prod-detalle-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+.prod-detalle-section {
+  background: var(--bg3);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.prod-detalle-full {
+  grid-column: 1 / -1;
+}
+.prod-detalle-label {
+  font-size: .75rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text3);
+  font-weight: 600;
+}
+.prod-detalle-value {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text);
+}
+.prod-detalle-price {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* ─── HOVER EN FILAS DE INVENTARIO ─── */
+tr.inv-row:hover td {
+  background: var(--bg3);
+  transition: background .15s;
+}
+tr.inv-row td {
+  transition: background .15s;
+}
+
+@media (max-width: 600px) {
+  .prod-detalle-grid { grid-template-columns: 1fr; }
+}
+
+/* ─── VISTA PREVIA REPORTE DIARIO ─── */
+.ventas-rpt-kpis {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+.ventas-rpt-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.ventas-rpt-kpi {
+  background: var(--bg3);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+}
+.ventas-rpt-kpi-accent {
+  border-color: var(--accent);
+  background: var(--accentBg);
+}
+.ventas-rpt-kpi-label {
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text3);
+  font-weight: 600;
+}
+.ventas-rpt-kpi-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+.ventas-rpt-kpi-accent .ventas-rpt-kpi-value {
+  color: var(--accent);
+}
+.ventas-rpt-kpi-sub {
+  font-size: .75rem;
+  color: var(--text3);
+}
+@media (max-width: 540px) {
+  .ventas-rpt-kpi-row { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 360px) {
+  .ventas-rpt-kpi-row { grid-template-columns: 1fr; }
+}

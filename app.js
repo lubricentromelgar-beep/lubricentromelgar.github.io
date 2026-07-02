@@ -200,24 +200,87 @@ function listenDashboard() {
       const total  = ventas.reduce((s,v) => s + (v.total||0), 0);
       document.getElementById('stat-ventas-hoy').textContent   = fmt(total);
       document.getElementById('stat-ventas-count').textContent = `${ventas.length} transacciones`;
-      renderUltimasVentas(ventas.slice(-5).reverse());
     }));
+  
+  // Renderizar la gráfica del dashboard
+  renderDashboardChart();
 }
 
-function renderUltimasVentas(ventas) {
-  const el = document.getElementById('dash-ultimas-ventas');
-  if (!ventas.length) {
-    el.innerHTML = '<div class="empty-state" style="padding:20px"><span class="icon" style="font-size:2rem">🛒</span><p>Sin ventas hoy</p></div>';
-    return;
+let dashboardChartInstance = null;
+
+async function renderDashboardChart() {
+  const ctx = document.getElementById('ventasChart');
+  if (!ctx) return;
+
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+
+  // Límites del mes actual
+  const currentMonthStart = new Date(currentYear, currentMonth, 1).toISOString().substring(0,10) + 'T00:00:00';
+  const currentMonthEnd = new Date(currentYear, currentMonth + 1, 0).toISOString().substring(0,10) + 'T23:59:59';
+  
+  try {
+    const snap = await db.collection('ventas')
+      .where('fecha', '>=', currentMonthStart)
+      .where('fecha', '<=', currentMonthEnd)
+      .get();
+
+    const currentMonthData = new Array(31).fill(0);
+
+    snap.docs.forEach(doc => {
+      const v = doc.data();
+      if (!v.fecha) return;
+      const dateObj = new Date(v.fecha);
+      const dayIndex = dateObj.getDate() - 1; // 0-based para el array
+      currentMonthData[dayIndex] += (v.total || 0);
+    });
+
+    const labels = Array.from({length: 31}, (_, i) => i + 1);
+
+    if (dashboardChartInstance) dashboardChartInstance.destroy();
+
+    // Nombres de los meses
+    const monthNames = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+    const currentMonthName = monthNames[currentMonth];
+
+    const titleActual = document.getElementById('titulo-mes-actual');
+    if (titleActual) titleActual.textContent = `Ventas: ${currentMonthName}`;
+
+    dashboardChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: `Ventas ${currentMonthName}`,
+            data: currentMonthData,
+            borderColor: '#f59e0b',
+            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+            borderWidth: 2,
+            tension: 0.3,
+            fill: true
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top', labels: { color: 'rgba(255, 255, 255, 0.7)', font: { family: 'Segoe UI' } } },
+          tooltip: { mode: 'index', intersect: false }
+        },
+        scales: {
+          x: { grid: { display: false, color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: 'rgba(255, 255, 255, 0.5)' } },
+          y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: 'rgba(255, 255, 255, 0.5)', callback: (value) => '$' + value } }
+        },
+        interaction: { mode: 'nearest', axis: 'x', intersect: false }
+      }
+    });
+
+  } catch(e) {
+    console.error("Error cargando gráfica:", e);
   }
-  el.innerHTML = ventas.map(v => `
-    <div class="flex items-center justify-between" style="padding:8px 0;border-bottom:1px solid var(--border)">
-      <div>
-        <div style="font-weight:600;font-size:.88rem">${v.items?.length||0} productos</div>
-        <div style="font-size:.78rem;color:var(--text3)">${timeStr(v.fecha)} · ${v.metodoPago||'—'}</div>
-      </div>
-      <div class="text-accent" style="font-weight:700">${fmt(v.total)}</div>
-    </div>`).join('');
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -291,7 +354,7 @@ function renderInventario() {
       : agot ? '<span class="badge badge-red">Agotado</span>'
       : bajo ? '<span class="badge badge-amber">Stock bajo</span>'
       : '<span class="badge badge-green">OK</span>';
-    return `<tr>
+    return `<tr class="inv-row" onclick="verDetalleProducto('${p.id}')" style="cursor:pointer">
       <td>
         <div style="font-weight:600">${p.nombre}</div>
         <div style="font-size:.78rem;color:var(--text3)">${p.marca||''} ${p.sku ? '· ' + p.sku : ''}</div>
@@ -309,9 +372,9 @@ function renderInventario() {
       <td style="font-weight:600">${fmt(p.precio||0)}</td>
       <td>${estado}</td>
       <td>
-        <div class="flex gap-8">
+        <div class="flex gap-8" onclick="event.stopPropagation()">
           <button class="btn btn-sm btn-ghost btn-icon" onclick="abrirEditarProducto('${p.id}')" title="Editar">✏️</button>
-          <button class="btn btn-sm btn-danger btn-icon" data-action="delete" data-id="${p.id}" data-nombre="${(p.nombre||'').replace(/"/g,'&quot;')}" title="Eliminar">🗑️</button>
+          <button class="btn btn-sm btn-danger btn-icon" onclick="eliminarProducto('${p.id}','${(p.nombre||'').replace(/'/g,"\\'")}')" title="Eliminar">🗑️</button>
         </div>
       </td>
     </tr>`;
@@ -814,7 +877,7 @@ function renderClientes() {
   }
   tbody.innerHTML = clis.map(c => {
     const placas = c.vehiculos?.map(v => `<span class="badge badge-blue" style="margin:1px">${v.placa}</span>`).join('') || '—';
-    return `<tr>
+    return `<tr class="hover-row" style="cursor:pointer" onclick="verDetalleCliente('${c.id}')">
       <td>
         <div style="font-weight:600">${c.nombre}</div>
         <div style="font-size:.78rem;color:var(--text3)">${c.email||''}</div>
@@ -824,7 +887,7 @@ function renderClientes() {
       <td style="color:var(--text3);font-size:.85rem">${c.ultimaVisita ? dateStr(c.ultimaVisita) : '—'}</td>
       <td>${c.totalServicios||0}</td>
       <td>
-        <button class="btn btn-sm btn-ghost btn-icon" onclick='editCliente("${c.id}")' title="Editar">✏️</button>
+        <button class="btn btn-sm btn-ghost btn-icon" onclick='event.stopPropagation(); editCliente("${c.id}")' title="Editar">✏️</button>
       </td>
     </tr>`;
   }).join('');
@@ -841,6 +904,65 @@ function openModalCliente() {
   document.getElementById('cli-id').value = '';
   document.getElementById('modal-cli-title').textContent = 'Nuevo cliente';
   document.getElementById('modal-cliente').classList.add('open');
+}
+
+let clienteActualId = null;
+
+function verDetalleCliente(id) {
+  const c = allClientes.find(x => x.id === id);
+  if (!c) return;
+  clienteActualId = id;
+
+  document.getElementById('cli-detalle-nombre').textContent = c.nombre;
+
+  const placasHtml = c.vehiculos?.map(v => `
+    <div style="background:var(--bg2); border:1px solid var(--border); padding:8px 12px; border-radius:4px; margin-bottom:8px;">
+      <div style="font-weight:700; color:var(--accent); font-size:1.1rem; margin-bottom:4px;">${v.placa}</div>
+      <div style="font-size:0.85rem; color:var(--text2)">${v.marca||'—'} ${v.modelo||''} ${v.anio||''}</div>
+      <div style="font-size:0.85rem; color:var(--text3); margin-top:2px;">Últ. KM: ${v.km||'—'} | Aceite: ${v.tipoAceite||'—'}</div>
+    </div>
+  `).join('') || '<p style="color:var(--text3)">Sin vehículos registrados.</p>';
+
+  document.getElementById('cli-detalle-body').innerHTML = `
+    <div class="prod-detalle-grid" style="margin-bottom:16px;">
+      <div class="detail-item">
+        <div class="label">Teléfono</div>
+        <div class="value">${c.telefono || '—'}</div>
+      </div>
+      <div class="detail-item">
+        <div class="label">Email</div>
+        <div class="value" style="word-break: break-all">${c.email || '—'}</div>
+      </div>
+      <div class="detail-item">
+        <div class="label">Total Servicios</div>
+        <div class="value">${c.totalServicios || 0}</div>
+      </div>
+      <div class="detail-item">
+        <div class="label">Última Visita</div>
+        <div class="value">${c.ultimaVisita ? dateStr(c.ultimaVisita) : '—'}</div>
+      </div>
+    </div>
+    <div style="margin-top:16px;">
+      <h3 style="margin-bottom:12px; font-size:0.95rem; color:var(--text2);">Vehículos registrados</h3>
+      ${placasHtml}
+    </div>
+  `;
+
+  document.getElementById('modal-cli-detalle').classList.add('open');
+}
+
+async function deleteClienteFromDetalle() {
+  if (!clienteActualId) return;
+  if (!confirm("¿Estás seguro de eliminar este cliente? Esta acción no se puede deshacer.")) return;
+  
+  try {
+    await db.collection('clientes').doc(clienteActualId).delete();
+    toast('Cliente eliminado', 'success');
+    closeModal('modal-cli-detalle');
+    clienteActualId = null;
+  } catch(e) {
+    toast('Error al eliminar cliente: ' + e.message, 'error');
+  }
 }
 
 async function editCliente(id) {
@@ -939,17 +1061,17 @@ async function loadHistorial() {
       tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text3)">Sin ventas en esta fecha</td></tr>';
       return;
     }
-    tbody.innerHTML = ventas.map(v => `<tr style="${v.anulada?'opacity:.45;text-decoration:line-through':''}" >
+    tbody.innerHTML = ventas.map(v => `<tr>
       <td style="color:var(--text3);font-size:.85rem">${timeStr(v.fecha)}</td>
       <td style="font-size:.85rem">${v.items?.map(i=>`${i.nombre} ×${i.qty}`).join(', ')}</td>
       <td style="color:var(--text3)">${v.clienteId ? (allClientes.find(c=>c.id===v.clienteId)?.nombre||'—') : '—'}</td>
       <td><span class="badge badge-gray">${v.metodoPago||'—'}</span></td>
       <td style="color:var(--text3);font-size:.82rem">${v.cajeroNombre||'—'}</td>
-      <td style="font-weight:700;color:${v.anulada?'var(--text3)':'var(--accent)'}">${v.anulada?'<span class="badge badge-red">Anulada</span>':fmt(v.total)}</td>
+      <td style="font-weight:700;color:var(--accent)">${fmt(v.total)}</td>
       <td>
         <div class="flex gap-8">
           <button class="btn btn-sm btn-ghost btn-icon" onclick='showVentaDetail(${JSON.stringify(v).replace(/'/g,"&#39;")})' title="Detalle">👁️</button>
-          ${!v.anulada ? `<button class="btn btn-sm btn-danger btn-icon" onclick='pedirAnulacion("${v.id}")' title="Anular venta">🚫</button>` : ''}
+          <button class="btn btn-sm btn-danger btn-icon" onclick='pedirEliminacionVenta("${v.id}")' title="Eliminar venta">🗑️</button>
         </div>
       </td>
     </tr>`).join('');
@@ -1026,14 +1148,114 @@ async function loadTopProductos() {
   }
 }
 
+async function previewReporteDiario() {
+  const fecha = document.getElementById('rpt-fecha').value;
+  if (!fecha) { toast('Selecciona una fecha', 'error'); return; }
+  const metodoFiltro = document.getElementById('rpt-metodo').value.toLowerCase();
+
+  const preview = document.getElementById('ventas-rpt-preview');
+  const tbody   = document.getElementById('ventas-rpt-tbody');
+  const kpis    = document.getElementById('ventas-rpt-kpis');
+  const summary = document.getElementById('ventas-rpt-summary');
+
+  tbody.innerHTML   = '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text3)">Cargando…</td></tr>';
+  kpis.innerHTML    = '';
+  summary.innerHTML = '';
+  preview.style.display = 'block';
+
+  try {
+    const snap = await db.collection('ventas')
+      .where('fecha', '>=', fecha + 'T00:00:00')
+      .where('fecha', '<=', fecha + 'T23:59:59')
+      .orderBy('fecha', 'asc').get();
+
+    let ventas = snap.docs.map(d => d.data());
+    if (metodoFiltro) {
+      ventas = ventas.filter(v => (v.metodoPago || '').toLowerCase() === metodoFiltro);
+    }
+
+    if (!ventas.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text3)">Sin ventas para esta fecha</td></tr>';
+      kpis.innerHTML  = '';
+      return;
+    }
+
+    // ── KPIs ──
+    const totalDia  = ventas.reduce((s, v) => s + (v.total || 0), 0);
+    const numVentas = ventas.length;
+    const metodos   = {};
+    ventas.forEach(v => {
+      const m = v.metodoPago || 'Sin método';
+      metodos[m] = (metodos[m] || 0) + (v.total || 0);
+    });
+    const metodoStr = Object.entries(metodos)
+      .map(([m, t]) => `${m}: ${fmt(t)}`).join('  ·  ');
+
+    const fecha_display = fecha.split('-').reverse().join('/');
+
+    kpis.innerHTML = `
+      <div class="ventas-rpt-kpi-row">
+        <div class="ventas-rpt-kpi ventas-rpt-kpi-accent">
+          <div class="ventas-rpt-kpi-label">Total del día</div>
+          <div class="ventas-rpt-kpi-value">${fmt(totalDia)}</div>
+          <div class="ventas-rpt-kpi-sub">${fecha_display}</div>
+        </div>
+        <div class="ventas-rpt-kpi">
+          <div class="ventas-rpt-kpi-label">Transacciones</div>
+          <div class="ventas-rpt-kpi-value">${numVentas}</div>
+          <div class="ventas-rpt-kpi-sub">ventas registradas</div>
+        </div>
+        <div class="ventas-rpt-kpi">
+          <div class="ventas-rpt-kpi-label">Promedio por venta</div>
+          <div class="ventas-rpt-kpi-value">${fmt(totalDia / numVentas)}</div>
+          <div class="ventas-rpt-kpi-sub">ticket promedio</div>
+        </div>
+      </div>
+    `;
+
+    // ── Tabla ──
+    tbody.innerHTML = ventas.map(v => {
+      const items = (v.items || []).map(i => `${i.nombre} ×${i.qty}`).join(', ');
+      const itemsShort = items.length > 55 ? items.substring(0, 52) + '…' : items;
+      const metodoBadge = {
+        'efectivo':  'badge-green',
+        'tarjeta':   'badge-blue',
+        'transferencia': 'badge-purple',
+      }[( v.metodoPago||'').toLowerCase()] || 'badge-gray';
+      return `<tr>
+        <td style="white-space:nowrap;font-size:.82rem;color:var(--text3)">${timeStr(v.fecha)}</td>
+        <td style="font-size:.82rem">${v.clienteNombre || '<span style="color:var(--text3)">General</span>'}</td>
+        <td style="font-size:.82rem;color:var(--text2)">${itemsShort || '—'}</td>
+        <td><span class="badge ${metodoBadge}" style="font-size:.75rem">${v.metodoPago || '—'}</span></td>
+        <td style="text-align:right;font-weight:700;color:var(--accent)">${fmt(v.total || 0)}</td>
+      </tr>`;
+    }).join('');
+
+    // ── Footer ──
+    summary.innerHTML = `
+      <span>💳 Métodos de pago: <strong>${metodoStr}</strong></span>
+    `;
+
+    toast(`${numVentas} venta${numVentas !== 1 ? 's' : ''} encontrada${numVentas !== 1 ? 's' : ''}`, 'success');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--red)">Error: ${e.message}</td></tr>`;
+    toast('Error al cargar ventas: ' + e.message, 'error');
+  }
+}
+
 async function generarReporteDiario() {
   const fecha = document.getElementById('rpt-fecha').value;
   if (!fecha) { toast('Selecciona una fecha', 'error'); return; }
+  const metodoFiltro = document.getElementById('rpt-metodo').value.toLowerCase();
+
   const snap = await db.collection('ventas')
     .where('fecha', '>=', fecha + 'T00:00:00')
     .where('fecha', '<=', fecha + 'T23:59:59')
     .orderBy('fecha','asc').get();
-  const ventas = snap.docs.map(d => d.data());
+  let ventas = snap.docs.map(d => d.data());
+  if (metodoFiltro) {
+    ventas = ventas.filter(v => (v.metodoPago || '').toLowerCase() === metodoFiltro);
+  }
   const config = getConfig();
   generarReportePDF(ventas, fecha, config);
 }
@@ -1325,6 +1547,92 @@ async function eliminarProducto(id, nombre) {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  VER DETALLE DE PRODUCTO
+// ════════════════════════════════════════════════════════════════
+function verDetalleProducto(id) {
+  const p = allProducts.find(x => x.id === id);
+  if (!p) { toast('Producto no encontrado', 'error'); return; }
+
+  const esServicio = p.categoria === 'servicio';
+  const stock      = p.stock    || 0;
+  const stockMin   = p.stockMin || 0;
+  const agot       = !esServicio && stock === 0;
+  const bajo       = !esServicio && stock <= stockMin && stock > 0;
+  const margen     = p.costo > 0 ? (((p.precio - p.costo) / p.costo) * 100).toFixed(1) : null;
+
+  // Header del modal
+  document.getElementById('prod-detalle-icon').textContent  = esServicio ? '🔧' : '📦';
+  document.getElementById('prod-detalle-nombre').textContent = p.nombre || '—';
+  document.getElementById('prod-detalle-sub').textContent    =
+    [p.marca, p.sku ? 'SKU: ' + p.sku : ''].filter(Boolean).join('  ·  ') || (esServicio ? 'Servicio' : 'Sin detalle adicional');
+
+  // Botón editar
+  const btnEditar = document.getElementById('prod-detalle-btn-editar');
+  btnEditar.onclick = () => { closeModal('modal-prod-detalle'); abrirEditarProducto(id); };
+
+  // Contenido del modal
+  const statusBadge = esServicio
+    ? `<span class="badge badge-blue">Servicio</span>`
+    : agot ? `<span class="badge badge-red">Agotado</span>`
+    : bajo  ? `<span class="badge badge-amber">Stock bajo</span>`
+    :         `<span class="badge badge-green">OK</span>`;
+
+  document.getElementById('prod-detalle-content').innerHTML = `
+    <div class="prod-detalle-grid">
+
+      <div class="prod-detalle-section">
+        <div class="prod-detalle-label">Estado</div>
+        <div class="prod-detalle-value">${statusBadge}</div>
+      </div>
+
+      <div class="prod-detalle-section">
+        <div class="prod-detalle-label">Categoría</div>
+        <div class="prod-detalle-value"><span class="badge badge-gray">${(p.categoria||'—').charAt(0).toUpperCase()+(p.categoria||'—').slice(1)}</span></div>
+      </div>
+
+      ${!esServicio ? `
+      <div class="prod-detalle-section">
+        <div class="prod-detalle-label">Stock actual</div>
+        <div class="prod-detalle-value" style="font-size:1.5rem;font-weight:700;color:${agot?'var(--red)':bajo?'var(--accent)':'var(--green)'}">
+          ${stock} <span style="font-size:.9rem;font-weight:400;color:var(--text3)">${p.unidad||'u'}</span>
+        </div>
+      </div>
+
+      <div class="prod-detalle-section">
+        <div class="prod-detalle-label">Stock mínimo</div>
+        <div class="prod-detalle-value">${stockMin} ${p.unidad||'u'}</div>
+      </div>` : ''}
+
+      <div class="prod-detalle-section">
+        <div class="prod-detalle-label">Precio de venta</div>
+        <div class="prod-detalle-value prod-detalle-price">${fmt(p.precio||0)}</div>
+      </div>
+
+      ${!esServicio && p.costo != null ? `
+      <div class="prod-detalle-section">
+        <div class="prod-detalle-label">Costo</div>
+        <div class="prod-detalle-value">${fmt(p.costo||0)}</div>
+      </div>` : ''}
+
+      ${margen !== null ? `
+      <div class="prod-detalle-section">
+        <div class="prod-detalle-label">Margen</div>
+        <div class="prod-detalle-value" style="color:var(--green);font-weight:600">${margen}%</div>
+      </div>` : ''}
+
+      ${p.descripcion ? `
+      <div class="prod-detalle-section prod-detalle-full">
+        <div class="prod-detalle-label">Descripción</div>
+        <div class="prod-detalle-value" style="color:var(--text2)">${p.descripcion}</div>
+      </div>` : ''}
+
+    </div>
+  `;
+
+  document.getElementById('modal-prod-detalle').classList.add('open');
+}
+
+// ════════════════════════════════════════════════════════════════
 //  CATEGORÍAS Y UNIDADES (Config)
 // ════════════════════════════════════════════════════════════════
 const CATS_DEFAULT    = ['lubricante','filtro','aditivo','refrigerante','otro'];
@@ -1489,52 +1797,63 @@ function onCatChange(cat) {
   if (btnGuardar) btnGuardar.textContent = esServicio ? 'Guardar servicio' : 'Guardar producto';
 }
 
-// ── Anulación de ventas ──
-let ventaAAnular = null;
+// ── Eliminación de ventas ──
+let ventaAEliminar = null;
 
-function pedirAnulacion(ventaId) {
-  ventaAAnular = ventaId;
-  document.getElementById('anular-pass').value = '';
-  document.getElementById('anular-venta-id').value = ventaId;
-  document.getElementById('modal-anular').classList.add('open');
-  setTimeout(() => document.getElementById('anular-pass').focus(), 200);
+function pedirEliminacionVenta(ventaId) {
+  ventaAEliminar = ventaId;
+  document.getElementById('eliminar-venta-pass').value = '';
+  document.getElementById('eliminar-venta-id').value = ventaId;
+  document.getElementById('modal-eliminar-venta').classList.add('open');
+  setTimeout(() => document.getElementById('eliminar-venta-pass').focus(), 200);
 }
 
-async function confirmarAnulacion() {
-  const pass = document.getElementById('anular-pass').value;
-  const ventaId = document.getElementById('anular-venta-id').value;
+async function confirmarEliminacionVenta() {
+  const pass = document.getElementById('eliminar-venta-pass').value;
+  const ventaId = document.getElementById('eliminar-venta-id').value;
   if (!pass) { toast('Ingresa la contraseña', 'error'); return; }
   if (!ventaId) return;
 
   try {
     // Reautenticar al usuario admin con su contraseña
-    const { EmailAuthProvider, reauthenticateWithCredential } = await import('https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js').catch(() => null) || {};
-
-    // Verificación alternativa: comparar con el admin guardado en Firestore
-    const adminSnap = await db.collection('usuarios')
-      .where('rol', '==', 'admin')
-      .limit(5)
-      .get();
-
-    // Verificar usando Firebase Auth re-authenticate
     const credential = firebase.auth.EmailAuthProvider.credential(
       currentUser.email,
       pass
     );
     await currentUser.reauthenticateWithCredential(credential);
 
-    // Contraseña correcta → anular
-    await db.collection('ventas').doc(ventaId).update({
-      anulada:       true,
-      anuladaEn:     new Date().toISOString(),
-      anuladaPor:    currentUser?.uid,
-      anuladaPorNombre: currentUserData?.nombre || '—'
-    });
+    // Contraseña correcta → proceder a eliminar
+    const ventaDoc = await db.collection('ventas').doc(ventaId).get();
+    if (!ventaDoc.exists) {
+      toast('La venta no existe', 'error');
+      closeModal('modal-eliminar-venta');
+      return;
+    }
+    
+    const ventaData = ventaDoc.data();
+    const batch = db.batch();
 
-    toast('Venta anulada correctamente', 'success');
-    closeModal('modal-anular');
+    // 1. Restaurar stock de los productos vendidos
+    if (ventaData.items && ventaData.items.length > 0) {
+      ventaData.items.forEach(item => {
+        if (item.id) {
+          const prodRef = db.collection('productos').doc(item.id);
+          batch.update(prodRef, { stock: firebase.firestore.FieldValue.increment(item.qty) });
+        }
+      });
+    }
+
+    // 2. Eliminar el documento de la venta
+    const ventaRef = db.collection('ventas').doc(ventaId);
+    batch.delete(ventaRef);
+
+    // Ejecutar ambas operaciones atómicamente
+    await batch.commit();
+
+    toast('Venta eliminada y stock restaurado', 'success');
+    closeModal('modal-eliminar-venta');
     loadHistorial(); // recargar tabla
-    ventaAAnular = null;
+    ventaAEliminar = null;
 
   } catch(e) {
     if (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {

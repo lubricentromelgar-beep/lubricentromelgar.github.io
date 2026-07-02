@@ -18,6 +18,9 @@
 
   <!-- jsPDF para tickets y reportes -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <!-- Chart.js para gráficas -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 
@@ -155,16 +158,12 @@
         </div>
 
         <div class="grid-2" style="gap:20px">
-          <div class="card">
-            <div class="card-header">
-              <h3>Últimas ventas</h3>
-              <button class="btn btn-sm btn-ghost" onclick="navigate('historial')">Ver todas</button>
+          <div class="card" style="padding-bottom: 10px;">
+            <div class="card-header mb-16">
+              <h3 id="titulo-mes-actual">Ventas: Mes Actual</h3>
             </div>
-            <div id="dash-ultimas-ventas">
-              <div class="empty-state" style="padding:20px">
-                <span class="icon" style="font-size:2rem">🛒</span>
-                <p>Sin ventas hoy</p>
-              </div>
+            <div style="position: relative; height: 180px; width: 100%;">
+              <canvas id="ventasChart"></canvas>
             </div>
           </div>
           <div class="card">
@@ -172,7 +171,7 @@
               <h3>Alertas de stock</h3>
               <button class="btn btn-sm btn-ghost" onclick="navigate('inventario')">Ver inventario</button>
             </div>
-            <div id="dash-alertas-stock">
+            <div id="dash-alertas-stock" style="max-height: 195px; overflow-y: auto; padding-right: 5px;">
               <div class="empty-state" style="padding:20px">
                 <span class="icon" style="font-size:2rem">✅</span>
                 <p>Stock OK</p>
@@ -340,11 +339,47 @@
         <div class="grid-2" style="gap:20px">
           <div class="card">
             <h3 class="mb-16">Reporte diario de ventas</h3>
-            <div class="form-group mb-16">
-              <label class="form-label">Fecha</label>
-              <input type="date" id="rpt-fecha">
+            <div class="grid-2 mb-16" style="gap:12px">
+              <div class="form-group">
+                <label class="form-label">Fecha</label>
+                <input type="date" id="rpt-fecha">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Método de pago</label>
+                <select id="rpt-metodo">
+                  <option value="">Todos</option>
+                  <option value="efectivo">Efectivo</option>
+                  <option value="tarjeta">Tarjeta</option>
+                  <option value="transferencia">Transferencia</option>
+                </select>
+              </div>
             </div>
-            <button class="btn btn-primary" onclick="generarReporteDiario()">📄 Generar PDF</button>
+            <div class="flex gap-8">
+              <button class="btn btn-primary" onclick="generarReporteDiario()">📄 Generar PDF</button>
+              <button class="btn btn-ghost" onclick="previewReporteDiario()">👁️ Vista previa</button>
+            </div>
+
+            <!-- Preview panel -->
+            <div id="ventas-rpt-preview" style="display:none;margin-top:20px">
+              <!-- Resumen en tarjetas -->
+              <div id="ventas-rpt-kpis" class="ventas-rpt-kpis"></div>
+              <!-- Tabla de ventas -->
+              <div class="table-wrap" style="max-height:340px;overflow-y:auto;margin-top:12px">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Hora</th>
+                      <th>Cliente</th>
+                      <th>Productos</th>
+                      <th>Método</th>
+                      <th style="text-align:right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody id="ventas-rpt-tbody"></tbody>
+                </table>
+              </div>
+              <div id="ventas-rpt-summary" class="flex gap-8 mt-12" style="font-size:.85rem;color:var(--text2);flex-wrap:wrap"></div>
+            </div>
           </div>
           <div class="card">
             <h3 class="mb-16">Productos más vendidos</h3>
@@ -558,25 +593,25 @@
      MODALES
 ══════════════════════════════════════ -->
 
-<!-- Modal: Anular Venta -->
-<div class="modal-overlay" id="modal-anular">
+<!-- Modal: Eliminar Venta -->
+<div class="modal-overlay" id="modal-eliminar-venta">
   <div class="modal" style="max-width:400px">
     <div class="modal-header">
-      <h2>🚫 Anular venta</h2>
-      <button class="btn-close" onclick="closeModal('modal-anular')">✕</button>
+      <h2>🗑️ Eliminar venta</h2>
+      <button class="btn-close" onclick="closeModal('modal-eliminar-venta')">✕</button>
     </div>
-    <div class="flex flex-col gap-12">
-      <p style="color:var(--text2);font-size:.9rem">Esta acción marcará la venta como anulada. No se puede deshacer. Ingresa tu contraseña de administrador para confirmar.</p>
+    <div class="modal-body">
+      <p style="margin-bottom:16px;color:var(--text2)">Esta acción eliminará la venta permanentemente y devolverá los productos al stock del inventario. Para continuar, ingresa tu contraseña de administrador.</p>
       <div class="form-group">
         <label class="form-label">Contraseña admin</label>
-        <input type="password" id="anular-pass" placeholder="Contraseña" autocomplete="off">
+        <input type="password" id="eliminar-venta-pass" placeholder="Contraseña" autocomplete="off">
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modal-anular')">Cancelar</button>
-      <button class="btn btn-danger" onclick="confirmarAnulacion()">Anular venta</button>
+      <button class="btn btn-ghost" onclick="closeModal('modal-eliminar-venta')">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarEliminacionVenta()">Eliminar venta</button>
     </div>
-    <input type="hidden" id="anular-venta-id">
+    <input type="hidden" id="eliminar-venta-id">
   </div>
 </div>
 
@@ -687,6 +722,23 @@
   </div>
 </div>
 
+<!-- Modal: Ver Cliente -->
+<div class="modal-overlay" id="modal-cli-detalle">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <h2 id="cli-detalle-nombre">Cliente</h2>
+      <button class="btn-close" onclick="closeModal('modal-cli-detalle')">✕</button>
+    </div>
+    <div class="modal-body" id="cli-detalle-body">
+      <!-- Client details injected by JS -->
+    </div>
+    <div class="modal-footer" style="justify-content: space-between;">
+      <button class="btn btn-ghost" style="color:var(--red)" onclick="deleteClienteFromDetalle()">🗑️ Eliminar cliente</button>
+      <button class="btn btn-ghost" onclick="closeModal('modal-cli-detalle')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: Ver Proveedor -->
 <div class="modal-overlay" id="modal-prov-detalle">
   <div class="modal" style="max-width:560px">
@@ -698,6 +750,29 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('modal-prov-detalle')">Cerrar</button>
       <button class="btn btn-primary" id="btn-prov-compra" onclick="abrirCompraDesdeDetalle()">+ Registrar compra</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Detalle de Producto -->
+<div class="modal-overlay" id="modal-prod-detalle">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span id="prod-detalle-icon" style="font-size:2rem;line-height:1">📦</span>
+        <div>
+          <h2 id="prod-detalle-nombre" style="margin:0"></h2>
+          <p id="prod-detalle-sub" style="margin:0;font-size:.82rem;color:var(--text3)"></p>
+        </div>
+      </div>
+      <button class="btn-close" onclick="closeModal('modal-prod-detalle')">✕</button>
+    </div>
+
+    <div id="prod-detalle-content"></div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-prod-detalle')">Cerrar</button>
+      <button class="btn btn-primary" id="prod-detalle-btn-editar" onclick="">✏️ Editar</button>
     </div>
   </div>
 </div>
